@@ -1,0 +1,16 @@
+name: Discord Notification on Push
+
+on: [push]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Send Discord notification
+      uses: rjstone/discord-webhook-notify@v4.0.0
+      with:
+        # The webhook URL is retrieved from the secret you created
+        webhookUrl: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        # Customize the message content as needed
+        text: "A push was made to the ${{ github.repository }} repository!"
+        # Optional: configure the events/details you want to send

@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Send Discord notification
-      uses: rjstone/discord-webhook-notify@v4.0.0
+      uses: rjstone/discord-webhook-notify@v1
       with:
         # The webhook URL is retrieved from the secret you created
         webhookUrl: ${{ secrets.DISCORD_WEBHOOK_URL }}

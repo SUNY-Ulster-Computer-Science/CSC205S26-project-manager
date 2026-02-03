@@ -1,4 +1,4 @@
-package projectmanagerprototype;
+package src.projectmanagerprototype;
 
 import java.io.Serializable;
 

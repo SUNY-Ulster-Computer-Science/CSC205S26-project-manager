@@ -1,4 +1,4 @@
-package src.projectmanagerprototype;
+package projectmanager;
 
 import java.util.*;
 import java.io.*;

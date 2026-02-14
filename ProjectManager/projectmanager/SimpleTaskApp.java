@@ -1,5 +1,7 @@
 package projectmanager;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
@@ -45,8 +47,9 @@ public class SimpleTaskApp {
      * <p>
      * The application automatically saves to file after each operation to ensure
      * data persistence. Date format expected is YYYY-MM-DD (e.g., 2024-12-25).
-     * Task names can contain spaces and special characters. Tags should be 
-     * space-separated when entering multiple tags (e.g., "urgent work personal").
+     * Only current or future dates are allowed when adding new tasks; past dates
+     * will be rejected. Task names can contain spaces and special characters. 
+     * Tags should be space-separated when entering multiple tags (e.g., "urgent work personal").
      * </p>
      *
      * @param args command line arguments (not used)
@@ -60,7 +63,7 @@ public class SimpleTaskApp {
             System.out.println("1. Add task");
             System.out.println("2. View tasks for a date");
             System.out.println("3. View all tasks");
-            System.out.println("4. View sorted tasks");
+            System.out.println("4. View sorted tasks by date");
             System.out.println("5. View tasks by tag");
             System.out.println("6. View all tags");
             System.out.println("7. Exit");
@@ -71,6 +74,21 @@ public class SimpleTaskApp {
             if (choice.equals("1")) {
                 System.out.print("Enter date (YYYY-MM-DD): ");
                 String date = scanner.nextLine().trim();
+                
+                // Validate date format and ensure it's not in the past
+                try {
+                    LocalDate taskDate = LocalDate.parse(date);
+                    LocalDate today = LocalDate.now();
+                    
+                    if (taskDate.isBefore(today)) {
+                        System.out.println("Error: Cannot add tasks for past dates. Please enter today's date or a future date.");
+                        continue;
+                    }
+                } catch (DateTimeParseException e) {
+                    System.out.println("Error: Invalid date format. Please use YYYY-MM-DD format.");
+                    continue;
+                }
+                
                 System.out.print("Enter task: ");
                 String task = scanner.nextLine().trim();
                 

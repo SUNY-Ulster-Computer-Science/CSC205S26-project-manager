@@ -50,6 +50,8 @@ public class SimpleTaskApp {
      * Only current or future dates are allowed when adding new tasks; past dates
      * will be rejected. Task names can contain spaces and special characters. 
      * Tags should be space-separated when entering multiple tags (e.g., "urgent work personal").
+     * Task names can contain spaces and special characters. Tags should be 
+     * space-separated when entering multiple tags (e.g., "urgent work personal").
      * </p>
      *
      * @param args command line arguments (not used)
@@ -64,6 +66,7 @@ public class SimpleTaskApp {
             System.out.println("2. View tasks for a date");
             System.out.println("3. View all tasks");
             System.out.println("4. View sorted tasks by date");
+            System.out.println("4. View sorted tasks");
             System.out.println("5. View tasks by tag");
             System.out.println("6. View all tags");
             System.out.println("7. Exit");

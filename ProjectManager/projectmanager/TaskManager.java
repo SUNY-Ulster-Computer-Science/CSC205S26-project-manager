@@ -146,6 +146,60 @@ public class TaskManager {
             }
         }
     }
+    
+ // Return all tasks as a flat list
+    public List<Task> getAllTasksFlat() {
+        List<Task> all = new ArrayList<>();
+        for (List<Task> list : tasks.values()) {
+            all.addAll(list);
+        }
+        return all;
+    }
+
+    // Return all tasks sorted by date
+    public List<Task> getAllTasksSortedFlat() {
+        List<String> sortedDates = new ArrayList<>(tasks.keySet());
+        Collections.sort(sortedDates);
+
+        List<Task> result = new ArrayList<>();
+        for (String date : sortedDates) {
+            result.addAll(tasks.get(date));
+        }
+        return result;
+    }
+
+    // Return tasks by tag
+    public List<Task> getTasksByTag(String tag) {
+        List<Task> result = new ArrayList<>();
+        for (List<Task> list : tasks.values()) {
+            for (Task t : list) {
+                if (t.hasTag(tag)) {
+                    result.add(t);
+                }
+            }
+        }
+        return result;
+    }
+
+    // Return all tags with counts
+    public List<String> getAllTagsWithCount() {
+        Map<String, Integer> tagCount = new TreeMap<>();
+
+        for (List<Task> list : tasks.values()) {
+            for (Task t : list) {
+                for (String tag : t.getTags()) {
+                    tagCount.put(tag, tagCount.getOrDefault(tag, 0) + 1);
+                }
+            }
+        }
+
+        List<String> result = new ArrayList<>();
+        for (String tag : tagCount.keySet()) {
+            int count = tagCount.get(tag);
+            result.add(tag + " (" + count + ")");
+        }
+        return result;
+    }
 
     /**
      * Displays all tasks that have a specific tag.
@@ -302,6 +356,45 @@ public class TaskManager {
         } catch (IOException e) {
             System.out.println("Error saving: " + e.getMessage());
         }
+    }
+    
+    /**
+     * Removes a task for a given date by its index (1-based).
+     *
+     * @param date the date of the task (YYYY-MM-DD)
+     * @param taskNumber the task number shown to the user (1-based index)
+     * @return true if removed successfully, false otherwise
+     */
+    public boolean removeTask(String date, int taskNumber) {
+        List<Task> dayTasks = tasks.get(date);
+
+        if (dayTasks == null || dayTasks.isEmpty()) {
+            return false;
+        }
+
+        if (taskNumber < 1 || taskNumber > dayTasks.size()) {
+            return false;
+        }
+
+        Task removed = dayTasks.remove(taskNumber - 1);
+        System.out.println("Removed: " + removed);
+
+        // If no tasks remain for that date, remove the date entry
+        if (dayTasks.isEmpty()) {
+            tasks.remove(date);
+        }
+
+        return true;
+    }
+    
+    /**
+     * Returns tasks for a specific date.
+     *
+     * @param date the date in YYYY-MM-DD format
+     * @return list of tasks or null if none exist
+     */
+    public List<Task> getTasksForDate(String date) {
+        return tasks.get(date);
     }
     
     /**

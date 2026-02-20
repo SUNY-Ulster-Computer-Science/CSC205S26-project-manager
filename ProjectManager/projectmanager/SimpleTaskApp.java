@@ -146,23 +146,56 @@ public class SimpleTaskApp extends JFrame {
     }
 
     private void removeTask() {
-        String date = JOptionPane.showInputDialog("Enter date (YYYY-MM-DD):");
-        if (date == null) return;
+        // Get all tasks sorted by date so the user can see everything
+        List<Task> allTasks = manager.getAllTasksSortedFlat();
 
-        List<Task> tasks = manager.getTasksForDate(date);
-        if (tasks == null || tasks.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "No tasks found.");
+        if (allTasks.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No tasks to remove.");
             return;
         }
 
-        String input = JOptionPane.showInputDialog("Enter task number to remove (1-" + tasks.size() + "):");
-        try {
-            int number = Integer.parseInt(input);
-            if (manager.removeTask(date, number)) {
-                manager.saveToFile();
-                refreshAllTasks();
+        // Build display strings for the selection list
+        String[] taskOptions = new String[allTasks.size()];
+        for (int i = 0; i < allTasks.size(); i++) {
+            taskOptions[i] = (i + 1) + ". " + allTasks.get(i).toString();
+        }
+
+        JList<String> selectionList = new JList<>(taskOptions);
+        selectionList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        selectionList.setSelectedIndex(0);
+
+        JScrollPane listScrollPane = new JScrollPane(selectionList);
+        listScrollPane.setPreferredSize(new Dimension(450, 200));
+
+        JPanel panel = new JPanel(new BorderLayout(5, 5));
+        panel.add(new JLabel("Select a task to remove:"), BorderLayout.NORTH);
+        panel.add(listScrollPane, BorderLayout.CENTER);
+
+        int result = JOptionPane.showConfirmDialog(
+                this, panel, "Remove Task", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            int selectedIndex = selectionList.getSelectedIndex();
+            if (selectedIndex >= 0) {
+                Task selectedTask = allTasks.get(selectedIndex);
+                String date = selectedTask.getDate();
+
+                // Find the task's position within its date group
+                List<Task> dateTasks = manager.getTasksForDate(date);
+                if (dateTasks != null) {
+                    for (int i = 0; i < dateTasks.size(); i++) {
+                        if (dateTasks.get(i) == selectedTask) {
+                            if (manager.removeTask(date, i + 1)) {
+                                manager.saveToFile();
+                                refreshAllTasks();
+                                JOptionPane.showMessageDialog(this, "Task removed successfully.");
+                            }
+                            break;
+                        }
+                    }
+                }
             }
-        } catch (Exception ignored) {}
+        }
     }
 
     private void refreshAllTasks() {

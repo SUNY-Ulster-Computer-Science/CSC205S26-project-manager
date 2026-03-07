@@ -7,12 +7,41 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * A Swing-based GUI application for managing tasks.
+ * <p>
+ * Provides functionality to add, view, filter, sort, and remove tasks.
+ * Tasks are persisted to a file via {@link TaskManager} and can be
+ * organized by date and tags.
+ * </p>
+ *
+ * @see TaskManager
+ * @see Task
+ */
 public class SimpleTaskApp extends JFrame {
 
+    /** The task manager handling all task operations and file persistence. */
     private TaskManager manager;
+
+    /** The list model backing the displayed task list. */
     private DefaultListModel<String> taskListModel;
+
+    /** The visual list component displaying tasks to the user. */
     private JList<String> taskList;
 
+    private static ImageIcon resizeIcon(ImageIcon icon, int resizedWidth, int resizedHeight) {
+        Image img = icon.getImage();
+        Image resizedImage = img.getScaledInstance(resizedWidth, resizedHeight, java.awt.Image.SCALE_SMOOTH);
+        return new ImageIcon(resizedImage);
+    }
+    /**
+     * Constructs and initializes the Task Manager application window.
+     * <p>
+     * Sets up the GUI layout including the task list display and
+     * button panel, wires up all action listeners, and loads
+     * existing tasks via {@link #refreshAllTasks()}.
+     * </p>
+     */
     public SimpleTaskApp() {
         manager = new TaskManager();
 
@@ -42,6 +71,36 @@ public class SimpleTaskApp extends JFrame {
         JButton viewTagsBtn = new JButton("View All Tags");
         JButton removeBtn = new JButton("Remove Task");
         JButton exitBtn = new JButton("Exit");
+        
+        List<JButton> ButtonList = new ArrayList<>();
+        ButtonList.add(addBtn);
+        ButtonList.add(viewDateBtn);
+        ButtonList.add(viewAllBtn);
+        ButtonList.add(viewSortedBtn);
+        ButtonList.add(viewTagBtn);
+        ButtonList.add(viewTagsBtn);
+        ButtonList.add(removeBtn);
+        ButtonList.add(exitBtn);
+        
+        for(JButton button : ButtonList) {
+        	button.setBorderPainted(false);
+        	button.setContentAreaFilled(false);
+        	button.setFocusPainted(false);
+        	button.setOpaque(false);
+            
+            ImageIcon icon = new ImageIcon("Large Button.png");
+            ImageIcon darkerIcon = new ImageIcon("Large Button Dark.png");
+            ImageIcon scaledIcon = resizeIcon(icon, 200, 50);
+            ImageIcon scaledDarkerIcon = resizeIcon(darkerIcon, 200, 50);
+            button.setIcon(scaledIcon);
+            button.setRolloverIcon(scaledDarkerIcon);
+            
+            button.setIcon(scaledIcon);
+            button.setVerticalTextPosition(SwingConstants.CENTER);
+            button.setHorizontalTextPosition(SwingConstants.CENTER);
+        }
+        
+        
 
         buttonPanel.add(addBtn);
         buttonPanel.add(viewDateBtn);
@@ -71,6 +130,15 @@ public class SimpleTaskApp extends JFrame {
         refreshAllTasks();
     }
 
+    /**
+     * Prompts the user to add a new task via input dialogs.
+     * <p>
+     * Collects a date (in {@code YYYY-MM-DD} format), a description,
+     * and optional space-separated tags. Validates that the date is
+     * not in the past and is properly formatted. After a successful
+     * addition, saves to file and refreshes the display.
+     * </p>
+     */
     private void addTask() {
         String date = JOptionPane.showInputDialog("Enter date (YYYY-MM-DD):");
         if (date == null) return;
@@ -105,6 +173,13 @@ public class SimpleTaskApp extends JFrame {
         refreshAllTasks();
     }
 
+    /**
+     * Prompts the user for a date and displays all tasks scheduled for that date.
+     * <p>
+     * If no tasks exist for the given date, a message indicating so is shown
+     * in the task list.
+     * </p>
+     */
     private void viewByDate() {
         String date = JOptionPane.showInputDialog("Enter date (YYYY-MM-DD):");
         if (date == null) return;
@@ -121,6 +196,13 @@ public class SimpleTaskApp extends JFrame {
         }
     }
 
+    /**
+     * Prompts the user for a tag and displays all tasks associated with that tag.
+     * <p>
+     * If no tasks match the given tag, a message indicating so is shown
+     * in the task list.
+     * </p>
+     */
     private void viewByTag() {
         String tag = JOptionPane.showInputDialog("Enter tag:");
         if (tag == null || tag.trim().isEmpty()) return;
@@ -137,6 +219,9 @@ public class SimpleTaskApp extends JFrame {
         }
     }
 
+    /**
+     * Displays all unique tags along with their task counts in the task list.
+     */
     private void viewAllTags() {
         taskListModel.clear();
         List<String> tags = manager.getAllTagsWithCount();
@@ -145,6 +230,14 @@ public class SimpleTaskApp extends JFrame {
         }
     }
 
+    /**
+     * Presents a selection dialog allowing the user to remove a task.
+     * <p>
+     * All tasks are displayed sorted by date. The user selects a task
+     * from the list, and upon confirmation, the task is removed from
+     * the manager, saved to file, and the display is refreshed.
+     * </p>
+     */
     private void removeTask() {
         // Get all tasks sorted by date so the user can see everything
         List<Task> allTasks = manager.getAllTasksSortedFlat();
@@ -198,6 +291,9 @@ public class SimpleTaskApp extends JFrame {
         }
     }
 
+    /**
+     * Refreshes the task list display with all tasks in their natural order.
+     */
     private void refreshAllTasks() {
         taskListModel.clear();
         for (Task t : manager.getAllTasksFlat()) {
@@ -205,6 +301,9 @@ public class SimpleTaskApp extends JFrame {
         }
     }
 
+    /**
+     * Refreshes the task list display with all tasks sorted by date.
+     */
     private void refreshSortedTasks() {
         taskListModel.clear();
         for (Task t : manager.getAllTasksSortedFlat()) {
@@ -212,6 +311,12 @@ public class SimpleTaskApp extends JFrame {
         }
     }
 
+    /**
+     * Application entry point. Launches the Task Manager GUI on the
+     * Swing event dispatch thread.
+     *
+     * @param args command-line arguments (not used)
+     */
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             new SimpleTaskApp().setVisible(true);

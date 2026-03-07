@@ -29,6 +29,11 @@ public class SimpleTaskApp extends JFrame {
     /** The visual list component displaying tasks to the user. */
     private JList<String> taskList;
 
+    private static ImageIcon resizeIcon(ImageIcon icon, int resizedWidth, int resizedHeight) {
+        Image img = icon.getImage();
+        Image resizedImage = img.getScaledInstance(resizedWidth, resizedHeight, java.awt.Image.SCALE_SMOOTH);
+        return new ImageIcon(resizedImage);
+    }
     /**
      * Constructs and initializes the Task Manager application window.
      * <p>
@@ -66,6 +71,36 @@ public class SimpleTaskApp extends JFrame {
         JButton viewTagsBtn = new JButton("View All Tags");
         JButton removeBtn = new JButton("Remove Task");
         JButton exitBtn = new JButton("Exit");
+        
+        List<JButton> ButtonList = new ArrayList<>();
+        ButtonList.add(addBtn);
+        ButtonList.add(viewDateBtn);
+        ButtonList.add(viewAllBtn);
+        ButtonList.add(viewSortedBtn);
+        ButtonList.add(viewTagBtn);
+        ButtonList.add(viewTagsBtn);
+        ButtonList.add(removeBtn);
+        ButtonList.add(exitBtn);
+        
+        for(JButton button : ButtonList) {
+        	button.setBorderPainted(false);
+        	button.setContentAreaFilled(false);
+        	button.setFocusPainted(false);
+        	button.setOpaque(false);
+            
+            ImageIcon icon = new ImageIcon("Large Button.png");
+            ImageIcon darkerIcon = new ImageIcon("Large Button Dark.png");
+            ImageIcon scaledIcon = resizeIcon(icon, 200, 50);
+            ImageIcon scaledDarkerIcon = resizeIcon(darkerIcon, 200, 50);
+            button.setIcon(scaledIcon);
+            button.setRolloverIcon(scaledDarkerIcon);
+            
+            button.setIcon(scaledIcon);
+            button.setVerticalTextPosition(SwingConstants.CENTER);
+            button.setHorizontalTextPosition(SwingConstants.CENTER);
+        }
+        
+        
 
         buttonPanel.add(addBtn);
         buttonPanel.add(viewDateBtn);

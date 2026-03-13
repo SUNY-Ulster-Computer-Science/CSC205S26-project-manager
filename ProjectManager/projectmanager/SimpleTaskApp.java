@@ -2,171 +2,511 @@ package projectmanager;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
+import static projectmanager.ThemeColors.*;
+
 /**
- * A Swing-based GUI application for managing tasks.
- * <p>
- * Provides functionality to add, view, filter, sort, and remove tasks.
- * Tasks are persisted to a file via {@link TaskManager} and can be
- * organized by date and tags.
- * </p>
+ * Swing-based GUI for managing tasks with the Orange™ visual theme.
+ *
+ * <p>Users can add tasks (with a name, due date, optional tags, and description),
+ * browse them in a scrollable list, filter by date or tag, view them sorted
+ * chronologically, inspect all tags, and remove individual tasks. Every
+ * mutation is persisted to disk through {@link TaskManager#saveToFile()}.</p>
+ *
+ * <h3>Layout</h3>
+ * <ul>
+ *   <li>An outer orange border surrounds a rounded inner peach panel.</li>
+ *   <li>A seven-button toolbar spans the top of the inner panel.</li>
+ *   <li>A cream-colored {@link JList} fills the remaining space below.</li>
+ * </ul>
  *
  * @see TaskManager
  * @see Task
  */
 public class SimpleTaskApp extends JFrame {
 
-    /** The task manager handling all task operations and file persistence. */
+    // ── Core application state ───────────────────────────────────────────
+
+    /** Handles task CRUD operations and file-based persistence. */
     private TaskManager manager;
 
-    /** The list model backing the displayed task list. */
+    /** Backing model for the on-screen task list. */
     private DefaultListModel<String> taskListModel;
 
-    /** The visual list component displaying tasks to the user. */
+    /** Visible list component that renders {@link #taskListModel}. */
     private JList<String> taskList;
 
-    private static ImageIcon resizeIcon(ImageIcon icon, int resizedWidth, int resizedHeight) {
-        Image img = icon.getImage();
-        Image resizedImage = img.getScaledInstance(resizedWidth, resizedHeight, java.awt.Image.SCALE_SMOOTH);
-        return new ImageIcon(resizedImage);
-    }
+    /** Background image painted behind every dialog (loaded from {@code Small Frame.png}). */
+    private ImageIcon dialogBackground;
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  Dialog helpers
+    // ══════════════════════════════════════════════════════════════════════
+
     /**
-     * Constructs and initializes the Task Manager application window.
-     * <p>
-     * Sets up the GUI layout including the task list display and
-     * button panel, wires up all action listeners, and loads
-     * existing tasks via {@link #refreshAllTasks()}.
-     * </p>
+     * Recursively sets every {@link JPanel} and {@link JLabel} in the
+     * component tree to non-opaque so that the dialog background image
+     * shows through.
+     *
+     * <p>{@link JScrollPane} is intentionally skipped because its viewport
+     * must remain opaque for list-selection highlight colors to render.</p>
+     *
+     * @param comp root of the subtree to make transparent
+     */
+    private void makeTransparent(Component comp) {
+        if (comp instanceof JPanel) ((JPanel) comp).setOpaque(false);
+        else if (comp instanceof JLabel) ((JLabel) comp).setOpaque(false);
+
+        if (comp instanceof Container && !(comp instanceof JScrollPane)) {
+            for (Component child : ((Container) comp).getComponents()) {
+                makeTransparent(child);
+            }
+        }
+    }
+
+    /**
+     * Creates an undecorated, fixed-size, modal dialog whose content pane
+     * is a {@link BackgroundPanel} painted with {@link #dialogBackground}.
+     *
+     * @param title  logical title (not displayed because the dialog is undecorated)
+     * @param width  dialog width in pixels
+     * @param height dialog height in pixels
+     * @return the configured but not-yet-visible dialog
+     */
+    private JDialog createThemedDialog(String title, int width, int height) {
+        JDialog dialog = new JDialog(this, title, true);
+        dialog.setSize(width, height);
+        dialog.setLocationRelativeTo(this);
+        dialog.setResizable(false);
+        dialog.setUndecorated(true);
+
+        BackgroundPanel bgPanel = new BackgroundPanel(
+                dialogBackground != null ? dialogBackground.getImage() : null);
+        bgPanel.setLayout(new BorderLayout());
+        dialog.setContentPane(bgPanel);
+
+        return dialog;
+    }
+
+    /**
+     * Displays a themed single-line input dialog with OK / Cancel buttons.
+     *
+     * @param message prompt text shown above the text field
+     * @return the entered string, or {@code null} if the user cancelled
+     */
+    private String showThemedInputDialog(String message) {
+        int dialogW = 300;
+        int dialogH = (int) (dialogW * (994.0 / 628.0));
+        JDialog dialog = createThemedDialog("Input", dialogW, dialogH);
+        final String[] result = {null};
+
+        JPanel content = new JPanel();
+        content.setOpaque(false);
+        content.setLayout(new GridBagLayout());
+        content.setBorder(BorderFactory.createEmptyBorder(
+                (int)(dialogH * 0.12), 30, 20, 30));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(8, 5, 8, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0;
+        gbc.weightx = 1.0;
+
+        // Prompt label
+        gbc.gridy = 0;
+        JLabel label = new JLabel(message);
+        label.setFont(new Font("SansSerif", Font.BOLD, 14));
+        label.setForeground(TEXT_DARK);
+        label.setOpaque(false);
+        content.add(label, gbc);
+
+        // Text input
+        gbc.gridy = 1;
+        RoundedTextField textField = new RoundedTextField(20);
+        content.add(textField, gbc);
+
+        // OK / Cancel buttons
+        gbc.gridy = 2;
+        gbc.insets = new Insets(20, 5, 5, 5);
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
+        btnPanel.setOpaque(false);
+
+        OrangeButton okBtn     = new OrangeButton("OK",     BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton cancelBtn = new OrangeButton("Cancel", BUTTON_ORANGE, BUTTON_HOVER);
+
+        okBtn.addActionListener(e     -> { result[0] = textField.getText(); dialog.dispose(); });
+        cancelBtn.addActionListener(e -> dialog.dispose());
+        textField.addActionListener(e -> { result[0] = textField.getText(); dialog.dispose(); });
+
+        btnPanel.add(okBtn);
+        btnPanel.add(cancelBtn);
+        content.add(btnPanel, gbc);
+
+        dialog.getContentPane().add(content, BorderLayout.CENTER);
+        dialog.setVisible(true);
+        return result[0];
+    }
+
+    /**
+     * Displays a themed message dialog with a single OK button.
+     * The message may contain simple HTML for line breaks, etc.
+     *
+     * @param message the text (or HTML fragment) to display
+     */
+    private void showThemedMessageDialog(String message) {
+        int dialogW = 280;
+        int dialogH = (int) (dialogW * (994.0 / 628.0));
+        JDialog dialog = createThemedDialog("Message", dialogW, dialogH);
+
+        JPanel content = new JPanel();
+        content.setOpaque(false);
+        content.setLayout(new GridBagLayout());
+        content.setBorder(BorderFactory.createEmptyBorder(
+                (int)(dialogH * 0.12), 30, 20, 30));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.gridx = 0;
+
+        // Message text (centered, supports HTML)
+        gbc.gridy = 0;
+        JLabel label = new JLabel("<html><center>" + message + "</center></html>");
+        label.setFont(new Font("SansSerif", Font.BOLD, 15));
+        label.setForeground(TEXT_DARK);
+        label.setHorizontalAlignment(SwingConstants.CENTER);
+        label.setOpaque(false);
+        content.add(label, gbc);
+
+        // OK button
+        gbc.gridy = 1;
+        gbc.insets = new Insets(25, 5, 5, 5);
+        OrangeButton okBtn = new OrangeButton("OK", BUTTON_ORANGE, BUTTON_HOVER);
+        okBtn.addActionListener(e -> dialog.dispose());
+        content.add(okBtn, gbc);
+
+        dialog.getContentPane().add(content, BorderLayout.CENTER);
+        dialog.setVisible(true);
+    }
+
+    /**
+     * Displays a themed confirmation dialog containing arbitrary content
+     * and OK / Cancel buttons.
+     *
+     * @param innerContent the component to embed in the dialog body
+     * @param title        logical dialog title
+     * @return {@link JOptionPane#OK_OPTION} or {@link JOptionPane#CANCEL_OPTION}
+     */
+    private int showThemedConfirmDialog(Component innerContent, String title) {
+        int dialogW = 360;
+        int dialogH = (int) (dialogW * (994.0 / 628.0));
+        JDialog dialog = createThemedDialog(title, dialogW, dialogH);
+        final int[] result = {JOptionPane.CANCEL_OPTION};
+
+        JPanel content = new JPanel();
+        content.setOpaque(false);
+        content.setLayout(new BorderLayout(10, 10));
+        content.setBorder(BorderFactory.createEmptyBorder(
+                (int)(dialogH * 0.12), 20, 20, 20));
+
+        makeTransparent(innerContent);
+        content.add(innerContent, BorderLayout.CENTER);
+
+        // OK / Cancel buttons
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
+        btnPanel.setOpaque(false);
+        btnPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
+
+        OrangeButton okBtn     = new OrangeButton("OK",     BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton cancelBtn = new OrangeButton("Cancel", BUTTON_ORANGE, BUTTON_HOVER);
+
+        okBtn.addActionListener(e     -> { result[0] = JOptionPane.OK_OPTION; dialog.dispose(); });
+        cancelBtn.addActionListener(e -> dialog.dispose());
+
+        btnPanel.add(okBtn);
+        btnPanel.add(cancelBtn);
+        content.add(btnPanel, BorderLayout.SOUTH);
+
+        dialog.getContentPane().add(content, BorderLayout.CENTER);
+        dialog.setVisible(true);
+        return result[0];
+    }
+
+    /**
+     * Displays the "Add Task" form dialog with fields for Name, Date, Tag,
+     * and a multi-line Description area.
+     *
+     * @return a four-element array {@code [name, date, tag, description]},
+     *         or {@code null} if the user cancelled
+     */
+    private String[] showAddTaskDialog() {
+        int dialogW = 380;
+        int dialogH = (int) (dialogW * (994.0 / 628.0));
+        JDialog dialog = createThemedDialog("Add Task", dialogW, dialogH);
+        final String[][] result = {null};
+
+        JPanel content = new JPanel();
+        content.setOpaque(false);
+        content.setLayout(new GridBagLayout());
+        content.setBorder(BorderFactory.createEmptyBorder(
+                (int)(dialogH * 0.12), 30, 20, 30));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(10, 5, 10, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+
+        // ── Name row ─────────────────────────────────────────────────────
+        gbc.gridy = 0;
+        gbc.gridx = 0;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.WEST;
+        content.add(new PillLabel("Name:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        RoundedTextField nameField = new RoundedTextField(15);
+        content.add(nameField, gbc);
+
+        // ── Date row ─────────────────────────────────────────────────────
+        gbc.gridy = 1;
+        gbc.gridx = 0;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        content.add(new PillLabel("Date:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        RoundedTextField dateField = new RoundedTextField(15);
+        content.add(dateField, gbc);
+
+        // ── Tag row ──────────────────────────────────────────────────────
+        gbc.gridy = 2;
+        gbc.gridx = 0;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        content.add(new PillLabel("Tag:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        RoundedTextField tagField = new RoundedTextField(15);
+        content.add(tagField, gbc);
+
+        // ── Description header banner ────────────────────────────────────
+        gbc.gridy = 3;
+        gbc.gridx = 0;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(15, 5, 0, 5);
+
+        JPanel descHeader = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(INNER_PEACH);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight() + 10, 20, 20);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        descHeader.setOpaque(false);
+        descHeader.setLayout(new FlowLayout(FlowLayout.CENTER));
+        JLabel descLabel = new JLabel("Description");
+        descLabel.setFont(new Font("SansSerif", Font.BOLD, 15));
+        descLabel.setForeground(TEXT_DARK);
+        descHeader.add(descLabel);
+        content.add(descHeader, gbc);
+
+        // ── Description text area ────────────────────────────────────────
+        gbc.gridy = 4;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.insets = new Insets(0, 5, 5, 5);
+        RoundedTextArea descArea = new RoundedTextArea(5, 20);
+        JScrollPane descScroll = new JScrollPane(descArea);
+        descScroll.setOpaque(false);
+        descScroll.getViewport().setOpaque(false);
+        descScroll.setBorder(BorderFactory.createEmptyBorder());
+        content.add(descScroll, gbc);
+
+        // ── Create / Cancel buttons ──────────────────────────────────────
+        gbc.gridy = 5;
+        gbc.weighty = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(10, 5, 10, 5);
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+        btnPanel.setOpaque(false);
+
+        OrangeButton createBtn = new OrangeButton("Create", BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton cancelBtn = new OrangeButton("Cancel", BUTTON_ORANGE, BUTTON_HOVER);
+
+        createBtn.addActionListener(e -> {
+            result[0] = new String[]{
+                    nameField.getText(),
+                    dateField.getText(),
+                    tagField.getText(),
+                    descArea.getText()
+            };
+            dialog.dispose();
+        });
+        cancelBtn.addActionListener(e -> dialog.dispose());
+
+        btnPanel.add(createBtn);
+        btnPanel.add(cancelBtn);
+        content.add(btnPanel, gbc);
+
+        dialog.getContentPane().add(content, BorderLayout.CENTER);
+        dialog.setVisible(true);
+        return result[0];
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  Constructor
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Builds the main application window: initializes the {@link TaskManager},
+     * assembles the toolbar and task list, wires up button actions, and
+     * populates the list with any previously saved tasks.
      */
     public SimpleTaskApp() {
         manager = new TaskManager();
+        dialogBackground = new ImageIcon("Small Frame.png");
 
-        setTitle("Task Manager");
-        setSize(700, 500);
+        setTitle("Orange\u2122 Task Manager");
+        setSize(1100, 750);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        // Layout
-        setLayout(new BorderLayout());
+        // Outer solid-orange border that frames the entire window
+        JPanel outerPanel = new JPanel(new BorderLayout());
+        outerPanel.setBackground(OUTER_ORANGE);
+        outerPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        setContentPane(outerPanel);
 
-        // ===== Task List (Center) =====
+        // Inner rounded peach card that holds all content
+        RoundedPanel innerPanel = new RoundedPanel(INNER_PEACH, 30);
+        innerPanel.setLayout(new BorderLayout(0, 15));
+        innerPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        outerPanel.add(innerPanel, BorderLayout.CENTER);
+
+        // ── Toolbar ──────────────────────────────────────────────────────
+        JPanel buttonBar = new JPanel(new GridLayout(1, 7, 6, 0));
+        buttonBar.setOpaque(false);
+
+        OrangeButton addBtn        = new OrangeButton("Add Task",             BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton viewDateBtn   = new OrangeButton("View Tasks by Date",   BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton viewAllBtn    = new OrangeButton("View All Tasks",       BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton viewSortedBtn = new OrangeButton("View Sorted Tasks",    BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton viewTagBtn    = new OrangeButton("View Tasks by Tag",    BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton viewTagsBtn   = new OrangeButton("View All Tags",        BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton removeBtn     = new OrangeButton("Remove Task",          BUTTON_ORANGE, BUTTON_HOVER);
+
+        buttonBar.add(addBtn);
+        buttonBar.add(viewDateBtn);
+        buttonBar.add(viewAllBtn);
+        buttonBar.add(viewSortedBtn);
+        buttonBar.add(viewTagBtn);
+        buttonBar.add(viewTagsBtn);
+        buttonBar.add(removeBtn);
+
+        innerPanel.add(buttonBar, BorderLayout.NORTH);
+
+        // ── Task list ────────────────────────────────────────────────────
         taskListModel = new DefaultListModel<>();
         taskList = new JList<>(taskListModel);
+        taskList.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        taskList.setForeground(TEXT_DARK);
+        taskList.setBackground(CONTENT_CREAM);
+        taskList.setSelectionBackground(LABEL_BG);
+        taskList.setSelectionForeground(Color.WHITE);
+        taskList.setFixedCellHeight(32);
+        taskList.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+
         JScrollPane scrollPane = new JScrollPane(taskList);
-        add(scrollPane, BorderLayout.CENTER);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getViewport().setBackground(CONTENT_CREAM);
 
-        // ===== Button Panel (Left) =====
-        JPanel buttonPanel = new JPanel();
-        buttonPanel.setLayout(new GridLayout(8, 1, 5, 5));
+        innerPanel.add(scrollPane, BorderLayout.CENTER);
 
-        JButton addBtn = new JButton("Add Task");
-        JButton viewDateBtn = new JButton("View Tasks by Date");
-        JButton viewAllBtn = new JButton("View All Tasks");
-        JButton viewSortedBtn = new JButton("View Sorted Tasks");
-        JButton viewTagBtn = new JButton("View Tasks by Tag");
-        JButton viewTagsBtn = new JButton("View All Tags");
-        JButton removeBtn = new JButton("Remove Task");
-        JButton exitBtn = new JButton("Exit");
-        
-        List<JButton> ButtonList = new ArrayList<>();
-        ButtonList.add(addBtn);
-        ButtonList.add(viewDateBtn);
-        ButtonList.add(viewAllBtn);
-        ButtonList.add(viewSortedBtn);
-        ButtonList.add(viewTagBtn);
-        ButtonList.add(viewTagsBtn);
-        ButtonList.add(removeBtn);
-        ButtonList.add(exitBtn);
-        
-        for(JButton button : ButtonList) {
-        	button.setBorderPainted(false);
-        	button.setContentAreaFilled(false);
-        	button.setFocusPainted(false);
-        	button.setOpaque(false);
-            
-            ImageIcon icon = new ImageIcon("Large Button.png");
-            ImageIcon darkerIcon = new ImageIcon("Large Button Dark.png");
-            ImageIcon scaledIcon = resizeIcon(icon, 200, 50);
-            ImageIcon scaledDarkerIcon = resizeIcon(darkerIcon, 200, 50);
-            button.setIcon(scaledIcon);
-            button.setRolloverIcon(scaledDarkerIcon);
-            
-            button.setIcon(scaledIcon);
-            button.setVerticalTextPosition(SwingConstants.CENTER);
-            button.setHorizontalTextPosition(SwingConstants.CENTER);
-        }
-        
-        
-
-        buttonPanel.add(addBtn);
-        buttonPanel.add(viewDateBtn);
-        buttonPanel.add(viewAllBtn);
-        buttonPanel.add(viewSortedBtn);
-        buttonPanel.add(viewTagBtn);
-        buttonPanel.add(viewTagsBtn);
-        buttonPanel.add(removeBtn);
-        buttonPanel.add(exitBtn);
-
-        add(buttonPanel, BorderLayout.WEST);
-
-        // ===== Button Actions =====
-
-        addBtn.addActionListener(e -> addTask());
-        viewDateBtn.addActionListener(e -> viewByDate());
-        viewAllBtn.addActionListener(e -> refreshAllTasks());
+        // ── Wire button actions ──────────────────────────────────────────
+        addBtn.addActionListener(e        -> addTask());
+        viewDateBtn.addActionListener(e   -> viewByDate());
+        viewAllBtn.addActionListener(e    -> refreshAllTasks());
         viewSortedBtn.addActionListener(e -> refreshSortedTasks());
-        viewTagBtn.addActionListener(e -> viewByTag());
-        viewTagsBtn.addActionListener(e -> viewAllTags());
-        removeBtn.addActionListener(e -> removeTask());
-        exitBtn.addActionListener(e -> {
-            manager.saveToFile();
-            System.exit(0);
+        viewTagBtn.addActionListener(e    -> viewByTag());
+        viewTagsBtn.addActionListener(e   -> viewAllTags());
+        removeBtn.addActionListener(e     -> removeTask());
+
+        // Persist tasks when the window is closed
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                manager.saveToFile();
+            }
         });
 
         refreshAllTasks();
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    //  Task operations (each method backs a toolbar button)
+    // ══════════════════════════════════════════════════════════════════════
+
     /**
-     * Prompts the user to add a new task via input dialogs.
-     * <p>
-     * Collects a date (in {@code YYYY-MM-DD} format), a description,
-     * and optional space-separated tags. Validates that the date is
-     * not in the past and is properly formatted. After a successful
-     * addition, saves to file and refreshes the display.
-     * </p>
+     * Opens the Add Task form, validates input, creates a new {@link Task},
+     * saves it, and refreshes the list.
      */
     private void addTask() {
-        String date = JOptionPane.showInputDialog("Enter date (YYYY-MM-DD):");
-        if (date == null) return;
+        String[] fields = showAddTaskDialog();
+        if (fields == null) return;
+
+        String name        = fields[0].trim();
+        String date        = fields[1].trim();
+        String tags        = fields[2].trim();
+        String description = fields[3].trim();
+
+        if (date.isEmpty()) {
+            showThemedMessageDialog("Date is required.");
+            return;
+        }
 
         try {
             LocalDate taskDate = LocalDate.parse(date);
             if (taskDate.isBefore(LocalDate.now())) {
-                JOptionPane.showMessageDialog(this, "Cannot add past dates.");
+                showThemedMessageDialog("Cannot add past dates.");
                 return;
             }
         } catch (DateTimeParseException e) {
-            JOptionPane.showMessageDialog(this, "Invalid date format.");
+            showThemedMessageDialog("Invalid date format.<br>Use YYYY-MM-DD.");
             return;
         }
 
-        String description = JOptionPane.showInputDialog("Enter task description:");
-        if (description == null || description.trim().isEmpty()) return;
+        String taskDescription = description.isEmpty() ? name
+                : (name.isEmpty() ? description : name + " - " + description);
+        if (taskDescription.isEmpty()) {
+            showThemedMessageDialog("Please enter a name<br>or description.");
+            return;
+        }
 
-        String tagInput = JOptionPane.showInputDialog("Enter tags (space separated):");
-
-        if (tagInput != null && !tagInput.trim().isEmpty()) {
-            List<String> tags = new ArrayList<>();
-            for (String tag : tagInput.split("\\s+")) {
-                tags.add(tag.trim());
+        if (!tags.isEmpty()) {
+            List<String> tagList = new ArrayList<>();
+            for (String tag : tags.split("\\s+")) {
+                tagList.add(tag.trim());
             }
-            manager.addTask(date, description, tags);
+            manager.addTask(date, taskDescription, tagList);
         } else {
-            manager.addTask(date, description);
+            manager.addTask(date, taskDescription);
         }
 
         manager.saveToFile();
@@ -174,14 +514,11 @@ public class SimpleTaskApp extends JFrame {
     }
 
     /**
-     * Prompts the user for a date and displays all tasks scheduled for that date.
-     * <p>
-     * If no tasks exist for the given date, a message indicating so is shown
-     * in the task list.
-     * </p>
+     * Prompts for a date string and replaces the list contents with only
+     * the tasks scheduled for that date.
      */
     private void viewByDate() {
-        String date = JOptionPane.showInputDialog("Enter date (YYYY-MM-DD):");
+        String date = showThemedInputDialog("Enter date (YYYY-MM-DD):");
         if (date == null) return;
 
         taskListModel.clear();
@@ -190,21 +527,16 @@ public class SimpleTaskApp extends JFrame {
         if (tasks == null || tasks.isEmpty()) {
             taskListModel.addElement("No tasks for " + date);
         } else {
-            for (Task t : tasks) {
-                taskListModel.addElement(t.toString());
-            }
+            for (Task t : tasks) taskListModel.addElement(t.toString());
         }
     }
 
     /**
-     * Prompts the user for a tag and displays all tasks associated with that tag.
-     * <p>
-     * If no tasks match the given tag, a message indicating so is shown
-     * in the task list.
-     * </p>
+     * Prompts for a tag and replaces the list contents with only the tasks
+     * carrying that tag.
      */
     private void viewByTag() {
-        String tag = JOptionPane.showInputDialog("Enter tag:");
+        String tag = showThemedInputDialog("Enter tag:");
         if (tag == null || tag.trim().isEmpty()) return;
 
         taskListModel.clear();
@@ -213,41 +545,31 @@ public class SimpleTaskApp extends JFrame {
         if (tasks.isEmpty()) {
             taskListModel.addElement("No tasks with tag: " + tag);
         } else {
-            for (Task t : tasks) {
-                taskListModel.addElement(t.toString());
-            }
+            for (Task t : tasks) taskListModel.addElement(t.toString());
         }
     }
 
     /**
-     * Displays all unique tags along with their task counts in the task list.
+     * Replaces the list contents with every known tag and its task count.
      */
     private void viewAllTags() {
         taskListModel.clear();
         List<String> tags = manager.getAllTagsWithCount();
-        for (String tag : tags) {
-            taskListModel.addElement(tag);
-        }
+        for (String tag : tags) taskListModel.addElement(tag);
     }
 
     /**
-     * Presents a selection dialog allowing the user to remove a task.
-     * <p>
-     * All tasks are displayed sorted by date. The user selects a task
-     * from the list, and upon confirmation, the task is removed from
-     * the manager, saved to file, and the display is refreshed.
-     * </p>
+     * Presents a selection dialog listing every task. On confirmation the
+     * chosen task is deleted, persisted, and the list is refreshed.
      */
     private void removeTask() {
-        // Get all tasks sorted by date so the user can see everything
         List<Task> allTasks = manager.getAllTasksSortedFlat();
 
         if (allTasks.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "No tasks to remove.");
+            showThemedMessageDialog("No tasks to remove.");
             return;
         }
 
-        // Build display strings for the selection list
         String[] taskOptions = new String[allTasks.size()];
         for (int i = 0; i < allTasks.size(); i++) {
             taskOptions[i] = (i + 1) + ". " + allTasks.get(i).toString();
@@ -256,16 +578,30 @@ public class SimpleTaskApp extends JFrame {
         JList<String> selectionList = new JList<>(taskOptions);
         selectionList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         selectionList.setSelectedIndex(0);
+        selectionList.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        selectionList.setForeground(TEXT_DARK);
+        selectionList.setBackground(CONTENT_CREAM);
+        selectionList.setOpaque(true);
+        selectionList.setSelectionBackground(LABEL_BG);
+        selectionList.setSelectionForeground(Color.WHITE);
 
         JScrollPane listScrollPane = new JScrollPane(selectionList);
-        listScrollPane.setPreferredSize(new Dimension(450, 200));
+        listScrollPane.setPreferredSize(new Dimension(300, 250));
+        listScrollPane.setOpaque(true);
+        listScrollPane.getViewport().setOpaque(true);
+        listScrollPane.getViewport().setBackground(CONTENT_CREAM);
+        listScrollPane.setBorder(BorderFactory.createLineBorder(LABEL_BG, 1));
 
         JPanel panel = new JPanel(new BorderLayout(5, 5));
-        panel.add(new JLabel("Select a task to remove:"), BorderLayout.NORTH);
+        panel.setOpaque(false);
+        JLabel headerLabel = new JLabel("Select a task to remove:");
+        headerLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
+        headerLabel.setForeground(TEXT_DARK);
+        headerLabel.setOpaque(false);
+        panel.add(headerLabel, BorderLayout.NORTH);
         panel.add(listScrollPane, BorderLayout.CENTER);
 
-        int result = JOptionPane.showConfirmDialog(
-                this, panel, "Remove Task", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        int result = showThemedConfirmDialog(panel, "Remove Task");
 
         if (result == JOptionPane.OK_OPTION) {
             int selectedIndex = selectionList.getSelectedIndex();
@@ -273,7 +609,6 @@ public class SimpleTaskApp extends JFrame {
                 Task selectedTask = allTasks.get(selectedIndex);
                 String date = selectedTask.getDate();
 
-                // Find the task's position within its date group
                 List<Task> dateTasks = manager.getTasksForDate(date);
                 if (dateTasks != null) {
                     for (int i = 0; i < dateTasks.size(); i++) {
@@ -281,7 +616,7 @@ public class SimpleTaskApp extends JFrame {
                             if (manager.removeTask(date, i + 1)) {
                                 manager.saveToFile();
                                 refreshAllTasks();
-                                JOptionPane.showMessageDialog(this, "Task removed successfully.");
+                                showThemedMessageDialog("Task removed successfully.");
                             }
                             break;
                         }
@@ -291,31 +626,26 @@ public class SimpleTaskApp extends JFrame {
         }
     }
 
-    /**
-     * Refreshes the task list display with all tasks in their natural order.
-     */
+    /** Replaces the list contents with every task in insertion order. */
     private void refreshAllTasks() {
         taskListModel.clear();
-        for (Task t : manager.getAllTasksFlat()) {
-            taskListModel.addElement(t.toString());
-        }
+        for (Task t : manager.getAllTasksFlat()) taskListModel.addElement(t.toString());
     }
 
-    /**
-     * Refreshes the task list display with all tasks sorted by date.
-     */
+    /** Replaces the list contents with every task sorted chronologically. */
     private void refreshSortedTasks() {
         taskListModel.clear();
-        for (Task t : manager.getAllTasksSortedFlat()) {
-            taskListModel.addElement(t.toString());
-        }
+        for (Task t : manager.getAllTasksSortedFlat()) taskListModel.addElement(t.toString());
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    //  Entry point
+    // ══════════════════════════════════════════════════════════════════════
+
     /**
-     * Application entry point. Launches the Task Manager GUI on the
-     * Swing event dispatch thread.
+     * Launches the Orange™ Task Manager on the Swing Event Dispatch Thread.
      *
-     * @param args command-line arguments (not used)
+     * @param args command-line arguments (ignored)
      */
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {

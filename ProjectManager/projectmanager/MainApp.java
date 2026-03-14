@@ -28,7 +28,7 @@ import static projectmanager.ThemeColors.*;
  * @see TaskManager
  * @see Task
  */
-public class SimpleTaskApp extends JFrame {
+public class MainApp extends JFrame {
 
     // ── Core application state ───────────────────────────────────────────
 
@@ -379,7 +379,7 @@ public class SimpleTaskApp extends JFrame {
      * assembles the toolbar and task list, wires up button actions, and
      * populates the list with any previously saved tasks.
      */
-    public SimpleTaskApp() {
+    public MainApp() {
         manager = new TaskManager();
         dialogBackground = new ImageIcon("Small Frame.png");
 
@@ -649,7 +649,7 @@ public class SimpleTaskApp extends JFrame {
      */
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            new SimpleTaskApp().setVisible(true);
+            new MainApp().setVisible(true);
         });
     }
 }

@@ -284,8 +284,8 @@ public class MainApp extends JFrame {
         gbc.gridx = 1;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        RoundedTextField dateField = new RoundedTextField(15);
-        content.add(dateField, gbc);
+        CalendarDatePicker datePicker = new CalendarDatePicker();
+        content.add(datePicker, gbc);
 
         // ── Tag row ──────────────────────────────────────────────────────
         gbc.gridy = 2;
@@ -353,7 +353,7 @@ public class MainApp extends JFrame {
         createBtn.addActionListener(e -> {
             result[0] = new String[]{
                     nameField.getText(),
-                    dateField.getText(),
+                    datePicker.getDateText(),
                     tagField.getText(),
                     descArea.getText()
             };
@@ -514,16 +514,67 @@ public class MainApp extends JFrame {
     }
 
     /**
-     * Prompts for a date string and replaces the list contents with only
-     * the tasks scheduled for that date.
+     * Opens a small themed dialog containing a {@link CalendarDatePicker} and
+     * replaces the list contents with only the tasks scheduled for the chosen date.
      */
     private void viewByDate() {
-        String date = showThemedInputDialog("Enter date (YYYY-MM-DD):");
-        if (date == null) return;
+        int dialogW = 320;
+        int dialogH = (int) (dialogW * (994.0 / 628.0));
+        JDialog dialog = createThemedDialog("View by Date", dialogW, dialogH);
+        final String[] result = {null};
 
+        JPanel content = new JPanel();
+        content.setOpaque(false);
+        content.setLayout(new GridBagLayout());
+        content.setBorder(BorderFactory.createEmptyBorder(
+                (int)(dialogH * 0.12), 30, 20, 30));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(8, 5, 8, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0;
+        gbc.weightx = 1.0;
+
+        // Prompt label
+        gbc.gridy = 0;
+        JLabel label = new JLabel("Select a date:");
+        label.setFont(new Font("SansSerif", Font.BOLD, 14));
+        label.setForeground(TEXT_DARK);
+        label.setOpaque(false);
+        content.add(label, gbc);
+
+        // Calendar picker
+        gbc.gridy = 1;
+        CalendarDatePicker picker = new CalendarDatePicker();
+        content.add(picker, gbc);
+
+        // OK / Cancel buttons
+        gbc.gridy = 2;
+        gbc.insets = new Insets(20, 5, 5, 5);
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
+        btnPanel.setOpaque(false);
+
+        OrangeButton okBtn     = new OrangeButton("OK",     BUTTON_ORANGE, BUTTON_HOVER);
+        OrangeButton cancelBtn = new OrangeButton("Cancel", BUTTON_ORANGE, BUTTON_HOVER);
+
+        okBtn.addActionListener(e -> {
+            result[0] = picker.getDateText();
+            dialog.dispose();
+        });
+        cancelBtn.addActionListener(e -> dialog.dispose());
+
+        btnPanel.add(okBtn);
+        btnPanel.add(cancelBtn);
+        content.add(btnPanel, gbc);
+
+        dialog.getContentPane().add(content, BorderLayout.CENTER);
+        dialog.setVisible(true);
+
+        if (result[0] == null || result[0].isEmpty()) return;
+
+        String date = result[0];
         taskListModel.clear();
         List<Task> tasks = manager.getTasksForDate(date);
-
         if (tasks == null || tasks.isEmpty()) {
             taskListModel.addElement("No tasks for " + date);
         } else {

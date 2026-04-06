@@ -36,7 +36,20 @@ public class WrapLayout extends FlowLayout {
     private Dimension computeSize(Container target) {
         synchronized (target.getTreeLock()) {
             int targetWidth = target.getWidth();
-            if (targetWidth == 0) targetWidth = Integer.MAX_VALUE;
+
+            // Walk up the hierarchy for a real width instead of falling back
+            // to MAX_VALUE, which would report a single-row preferred height
+            // and cause TaskCard to be sized too short on first layout.
+            if (targetWidth == 0) {
+                Container parent = target.getParent();
+                while (parent != null && targetWidth == 0) {
+                    targetWidth = parent.getWidth();
+                    parent = parent.getParent();
+                }
+            }
+            // If we still have no width, use a sane default (400 px) rather
+            // than MAX_VALUE so multi-row heights are estimated correctly.
+            if (targetWidth == 0) targetWidth = 400;
 
             Insets insets = target.getInsets();
             int maxWidth = targetWidth - insets.left - insets.right;

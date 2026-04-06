@@ -1,169 +1,219 @@
 package projectmanager;
 
 import java.io.Serializable;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
- * Represents a simple task with a description, associated date, and tags.
- * <p>
- * This class encapsulates a single task item consisting of a text description,
- * a date string, and optional tags for categorization. Tasks can be serialized 
- * for file storage and implements a string representation for easy display.
- * </p>
+ * Represents a task with a description, due date, status, priority,
+ * notes, tags, and automatic countdown to due date.
  *
- * <p><b>Date Format:</b> Dates are stored as strings in YYYY-MM-DD format
- * (e.g., "2024-12-25").</p>
- *
- * <p><b>Tags:</b> Tags are optional labels that can be used to categorize tasks
- * (e.g., "work", "personal", "urgent").</p>
- *
- * <p><b>Usage Example:</b></p>
- * <pre>
- * Task task = new Task("Complete project report", "2024-12-31");
- * task.addTag("work");
- * task.addTag("urgent");
- * System.out.println(task); // Output: 2024-12-31: Complete project report [work, urgent]
- * </pre>
- *
- * @author Team Orange
- * @version 1.0
- * @see TaskManager
+ * <p>Changing a task's {@link Status} automatically synchronises a set of
+ * reserved status-tags ("todo", "in-progress", "done") so that tag-based
+ * filters always reflect the current state.</p>
  */
 public class Task implements Serializable {
 
-    /**
-     * Serial version UID for serialization compatibility.
-     */
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
 
-    /**
-     * The textual description of the task.
-     */
+    // ── Status & Priority enums ───────────────────────────────────────────
+
+    /** Workflow states for a task. */
+    public enum Status {
+        TODO("To Do"),
+        IN_PROGRESS("In Progress"),
+        DONE("Done");
+
+        private final String label;
+        Status(String label) { this.label = label; }
+        public String getLabel() { return label; }
+    }
+
+    /** Importance levels for a task. */
+    public enum Priority {
+        LOW("Low"),
+        MEDIUM("Medium"),
+        HIGH("High");
+
+        private final String label;
+        Priority(String label) { this.label = label; }
+        public String getLabel() { return label; }
+    }
+
+    // ── Reserved tag names synced to Status ───────────────────────────────
+    private static final String TAG_TODO        = "todo";
+    private static final String TAG_IN_PROGRESS = "in-progress";
+    private static final String TAG_DONE        = "done";
+
+    // ── Fields ────────────────────────────────────────────────────────────
+
+    /** Globally unique identifier (UUID v4). */
+    private String id;
+
+    /** Short summary / title of the task. */
     private String description;
 
-    /**
-     * The date associated with this task in YYYY-MM-DD format.
-     * Example: "2024-12-25"
-     */
+    /** Due date in YYYY-MM-DD format. */
     private String date;
 
-    /**
-     * List of tags associated with this task for categorization.
-     */
+    /** Current workflow status. */
+    private Status status;
+
+    /** Importance level. */
+    private Priority priority;
+
+    /** Longer notes / details. */
+    private String notes;
+
+    /** ISO date on which this task was first created. */
+    private String createdDate;
+
+    /** User-defined and status-managed tag list. */
     private List<String> tags;
 
-    /**
-     * Constructs a new Task with the specified description and date.
-     *
-     * @param description the textual description of what needs to be done
-     * @param date the date for this task in YYYY-MM-DD format (e.g., "2024-12-25")
-     */
+    // ── Constructors ──────────────────────────────────────────────────────
+
     public Task(String description, String date) {
-        this.description = description;
-        this.date = date;
-        this.tags = new ArrayList<>();
+        this(description, date, new ArrayList<>());
     }
 
-    /**
-     * Constructs a new Task with the specified description, date, and tags.
-     *
-     * @param description the textual description of what needs to be done
-     * @param date the date for this task in YYYY-MM-DD format (e.g., "2024-12-25")
-     * @param tags list of tags to categorize this task
-     */
     public Task(String description, String date, List<String> tags) {
+        this.id          = UUID.randomUUID().toString();
         this.description = description;
-        this.date = date;
-        this.tags = new ArrayList<>(tags);
+        this.date        = date;
+        this.tags        = new ArrayList<>(tags);
+        this.status      = Status.TODO;
+        this.priority    = Priority.MEDIUM;
+        this.notes       = "";
+        this.createdDate = LocalDate.now().toString();
+        syncStatusTag();
     }
 
-    /**
-     * Returns the description of this task.
-     *
-     * @return the task description as a string
-     */
-    public String getDescription() {
-        return description;
-    }
+    // ── Getters / Setters ─────────────────────────────────────────────────
+
+    public String getId()          { return id; }
+    public void   setId(String id) { this.id = id; }
+
+    public String getDescription()                   { return description; }
+    public void   setDescription(String description) { this.description = description; }
+
+    public String getDate()            { return date; }
+    public void   setDate(String date) { this.date = date; }
+
+    public Status getStatus() { return status; }
 
     /**
-     * Returns the date associated with this task.
+     * Changes the task status and automatically updates the reserved
+     * status-tags ("todo", "in-progress", "done").
      *
-     * @return the date string in YYYY-MM-DD format
+     * @param status new status
      */
-    public String getDate() {
-        return date;
+    public void setStatus(Status status) {
+        this.status = (status == null) ? Status.TODO : status;
+        syncStatusTag();
     }
 
-    /**
-     * Returns the list of tags associated with this task.
-     *
-     * @return list of tag strings
-     */
-    public List<String> getTags() {
-        return new ArrayList<>(tags);
-    }
+    public Priority getPriority()                    { return priority; }
+    public void     setPriority(Priority priority)   { this.priority = (priority == null) ? Priority.MEDIUM : priority; }
 
-    /**
-     * Adds a tag to this task.
-     *
-     * @param tag the tag to add
-     */
+    public String getNotes()              { return notes == null ? "" : notes; }
+    public void   setNotes(String notes)  { this.notes = (notes == null) ? "" : notes; }
+
+    public String getCreatedDate()                      { return createdDate == null ? "" : createdDate; }
+    public void   setCreatedDate(String createdDate)    { this.createdDate = createdDate; }
+
+    // ── Tag management ────────────────────────────────────────────────────
+
+    public List<String> getTags() { return new ArrayList<>(tags); }
+
     public void addTag(String tag) {
         if (tag != null && !tag.trim().isEmpty() && !tags.contains(tag.trim())) {
             tags.add(tag.trim());
         }
     }
 
-    /**
-     * Removes a tag from this task.
-     *
-     * @param tag the tag to remove
-     * @return true if the tag was removed, false if it didn't exist
-     */
-    public boolean removeTag(String tag) {
-        return tags.remove(tag);
-    }
+    public boolean removeTag(String tag) { return tags.remove(tag); }
 
-    /**
-     * Checks if this task has a specific tag.
-     *
-     * @param tag the tag to check for
-     * @return true if the task has this tag, false otherwise
-     */
-    public boolean hasTag(String tag) {
-        return tags.contains(tag);
-    }
+    public boolean hasTag(String tag)    { return tags.contains(tag); }
 
-    /**
-     * Returns a string representation of the tags in a comma-separated format.
-     *
-     * @return comma-separated tag string, or empty string if no tags
-     */
     public String getTagsAsString() {
-        if (tags.isEmpty()) {
-            return "";
-        }
-        return String.join(",", tags);
+        return tags.isEmpty() ? "" : String.join(",", tags);
     }
 
     /**
-     * Returns a string representation of this task.
-     * <p>
-     * The format is: "date: description [tag1, tag2, ...]"
-     * If no tags exist, the format is: "date: description"
-     * </p>
+     * Replaces the entire tag list (used when editing tags directly).
+     * Reserved status-tags are re-synced afterwards.
      *
-     * @return a formatted string containing the date, description, and tags
-     * @see Object#toString()
+     * @param newTags replacement tag list
      */
+    public void setTags(List<String> newTags) {
+        this.tags = new ArrayList<>(newTags);
+        // Remove any stale status tags then re-add the correct one
+        tags.remove(TAG_TODO);
+        tags.remove(TAG_IN_PROGRESS);
+        tags.remove(TAG_DONE);
+        syncStatusTag();
+    }
+
+    /** Removes the three reserved status-tags and adds the one that matches {@link #status}. */
+    private void syncStatusTag() {
+        tags.remove(TAG_TODO);
+        tags.remove(TAG_IN_PROGRESS);
+        tags.remove(TAG_DONE);
+        switch (status) {
+            case TODO:        tags.add(0, TAG_TODO);        break;
+            case IN_PROGRESS: tags.add(0, TAG_IN_PROGRESS); break;
+            case DONE:        tags.add(0, TAG_DONE);        break;
+        }
+    }
+
+    // ── Countdown helpers ─────────────────────────────────────────────────
+
+    /**
+     * @return the parsed due-date as a {@link LocalDate}, or {@code null} if unparseable
+     */
+    public LocalDate getDueDate() {
+        try { return LocalDate.parse(date); } catch (Exception e) { return null; }
+    }
+
+    /**
+     * @return number of days from today until the due date (negative = past)
+     */
+    public long daysUntilDue() {
+        LocalDate due = getDueDate();
+        if (due == null) return 0;
+        return ChronoUnit.DAYS.between(LocalDate.now(), due);
+    }
+
+    /**
+     * @return {@code true} if the due date has passed and the task is not DONE
+     */
+    public boolean isOverdue() {
+        return status != Status.DONE && daysUntilDue() < 0;
+    }
+
+    /**
+     * Human-readable countdown string shown on a task card.
+     *
+     * @return e.g. "Done ✓", "Overdue 3d", "Due today!", "Tomorrow", "5 days left"
+     */
+    public String countdownLabel() {
+        if (status == Status.DONE) return "Done ✓";
+        long days = daysUntilDue();
+        if (days < 0)  return "Overdue " + Math.abs(days) + "d";
+        if (days == 0) return "Due today!";
+        if (days == 1) return "Tomorrow";
+        return days + " days left";
+    }
+
+    // ── Object overrides ──────────────────────────────────────────────────
+
     @Override
     public String toString() {
-        if (tags.isEmpty()) {
-            return date + ": " + description;
-        } else {
-            return date + ": " + description + " [" + String.join(", ", tags) + "]";
-        }
+        String tagStr = tags.isEmpty() ? "" : " [" + String.join(", ", tags) + "]";
+        return date + ": " + description + tagStr;
     }
 }

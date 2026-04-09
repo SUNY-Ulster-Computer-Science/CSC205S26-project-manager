@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "id": "c21b900b-bdf2-4048-aeab-8e0efbacfef8",
+      "description": "Presentation Test Task",
+      "date": "2026-05-01",
+      "status": "TODO",
+      "priority": "LOW",
+      "notes": "Hi this is an example",
+      "createdDate": "2026-04-09",
+      "tags": ["todo", "Example"]
+    },
+    {
       "id": "28ab69ac-9f13-4195-819f-3e383cc46e31",
       "description": "TestTask23",
       "date": "2026-04-10",
@@ -31,16 +41,6 @@
       "tags": ["todo", "Hi"]
     },
     {
-      "id": "6c4f789e-e083-4f2d-86f4-01db1a9bcb03",
-      "description": "2 Week Task",
-      "date": "2026-04-16",
-      "status": "TODO",
-      "priority": "HIGH",
-      "notes": "",
-      "createdDate": "2026-04-02",
-      "tags": ["todo", "Hi"]
-    },
-    {
       "id": "68a910df-bb3d-4f94-9ed2-4a71e0cd858f",
       "description": "UITestTask - This is a test task.",
       "date": "2026-10-03",
@@ -51,12 +51,22 @@
       "tags": ["in-progress", "Working"]
     },
     {
+      "id": "6c4f789e-e083-4f2d-86f4-01db1a9bcb03",
+      "description": "2 Week Task",
+      "date": "2026-04-16",
+      "status": "IN_PROGRESS",
+      "priority": "HIGH",
+      "notes": "",
+      "createdDate": "2026-04-02",
+      "tags": ["in-progress", "Hi"]
+    },
+    {
       "id": "c34f9b54-c265-40b6-a154-45df0e50a01e",
       "description": "Test Today",
       "date": "2026-04-02",
       "status": "TODO",
-      "priority": "HIGH",
-      "notes": "",
+      "priority": "MEDIUM",
+      "notes": "Test Note",
       "createdDate": "2026-04-02",
       "tags": ["todo", "Hi"]
     },

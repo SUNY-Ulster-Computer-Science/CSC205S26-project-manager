@@ -11,64 +11,106 @@ import java.util.*;
 import static projectmanager.ThemeColors.*;
 
 /**
- * A full month-view calendar panel embedded directly in the main window.
+ * A full-featured month-view calendar panel embedded in the left sidebar of the
+ * application.
  *
- * <p>Key design decisions:
- * <ul>
- *   <li>{@link SquareCellLayout} — a custom {@link LayoutManager} that
- *       computes cell size as {@code availableWidth / 7} and reuses that
- *       value for height, guaranteeing perfect squares regardless of how the
- *       panel is resized.</li>
- *   <li>Each day cell is a single component whose {@code paintComponent}
- *       handles all drawing (background, today-ring, day number, badge).
- *       No child labels or sub-panels are used, eliminating any
- *       inner-layout step that could cause misalignment.</li>
- *   <li>Clicking a day <em>only repaints the two affected cells</em> (the
- *       previously-selected and newly-selected one).  The grid is never
- *       torn down and rebuilt on a simple selection change, which was the
- *       root cause of the visible "rebuild flash" glitch.</li>
- * </ul>
- * </p>
+ * <p>The panel renders the days of the current view month as a grid of
+ * square cells.  Each cell shows the day number; cells that have tasks display a
+ * small badge with the task count, colour-coded by urgency (overdue, due today,
+ * due soon, or normal).  The selected day cell is filled with
+ * {@link ThemeColors#DAY_SELECTED} and today's cell is outlined with
+ * {@link ThemeColors#TODAY_RING}.</p>
+ *
+ * <h3>Navigation</h3>
+ * <p>Left/right arrow buttons in the header navigate one month at a time.
+ * Clicking any day cell fires {@link DateSelectionListener#onDateSelected}.</p>
+ *
+ * <h3>Layout</h3>
+ * <p>Day cells are square and laid out by the inner {@link SquareCellLayout}
+ * class, which computes an equal cell size from the available container width.</p>
  */
 public class CalendarPanel extends JPanel {
 
-    // ── Listener ──────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------------
+    // Listener interface
+    // -----------------------------------------------------------------------
 
+    /**
+     * Callback fired when the user clicks a day cell in the calendar.
+     */
     public interface DateSelectionListener {
+        /**
+         * Called on the Event Dispatch Thread when a day cell is clicked.
+         *
+         * @param date the date that was clicked
+         */
         void onDateSelected(LocalDate date);
     }
 
-    // ── Constants ─────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------------
+    // Constants
+    // -----------------------------------------------------------------------
 
-    private static final String[] DAY_HEADERS =
-            {"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"};
-    private static final int COLS     = 7;
+    /** Short day-of-week column headers (Sunday–Saturday). */
+    private static final String[] DAY_HEADERS = {"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"};
+
+    /** Number of columns in the calendar grid (always 7, one per weekday). */
+    private static final int COLS = 7;
+
+    /** Pixel gap between adjacent day cells. */
     private static final int CELL_GAP = 3;
-    static final         int DEFAULT_CELL = 40;   // floor used by SquareCellLayout
 
-    // ── State ─────────────────────────────────────────────────────────────
+    /** Default / minimum cell side length in pixels. */
+    static final int DEFAULT_CELL = 40;
 
-    private YearMonth                   viewMonth    = YearMonth.now();
-    private LocalDate                   selectedDate = LocalDate.now();
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+
+    /** The month currently displayed in the grid. */
+    private YearMonth viewMonth    = YearMonth.now();
+
+    /** The currently selected date (highlighted cell). */
+    private LocalDate selectedDate = LocalDate.now();
+
+    /** Data source queried for task counts and urgency colours. */
     private final TaskManager           taskManager;
+
+    /** Listener notified when the user clicks a day. */
     private final DateSelectionListener listener;
 
     /**
-     * Live map from date → cell panel so selection changes can repaint
-     * only the two affected cells without rebuilding the whole grid.
+     * Map from each rendered date to its corresponding cell panel; used to
+     * repaint individual cells efficiently when the selection changes.
      */
     private final Map<LocalDate, JPanel> cellsByDate = new HashMap<>();
 
-    // ── UI references ─────────────────────────────────────────────────────
+    // -----------------------------------------------------------------------
+    // Child components
+    // -----------------------------------------------------------------------
 
+    /** Header label showing the current month and year. */
     private JLabel monthLabel;
-    private JPanel gridWrapper;   // BorderLayout: NORTH = headers, CENTER = cellGrid
-    private JPanel cellGrid;      // SquareCellLayout holding day cells
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  Construction
-    // ══════════════════════════════════════════════════════════════════════
+    /** Wrapper that holds both the day-of-week header row and the cell grid. */
+    private JPanel gridWrapper;
 
+    /** The current cell grid panel (replaced on month navigation). */
+    private JPanel cellGrid;
+
+    // -----------------------------------------------------------------------
+    // Constructor
+    // -----------------------------------------------------------------------
+
+    /**
+     * Constructs a {@code CalendarPanel} connected to the given task manager and
+     * selection listener.
+     *
+     * @param taskManager data source for task counts and due-date colours
+     *                    (must not be {@code null})
+     * @param listener    callback fired when the user selects a day; may be
+     *                    {@code null} to suppress callbacks
+     */
     public CalendarPanel(TaskManager taskManager, DateSelectionListener listener) {
         this.taskManager = taskManager;
         this.listener    = listener;
@@ -81,8 +123,16 @@ public class CalendarPanel extends JPanel {
         add(gridWrapper, BorderLayout.CENTER);
     }
 
-    // ── Header (month title + navigation arrows) ──────────────────────────
+    // -----------------------------------------------------------------------
+    // Header
+    // -----------------------------------------------------------------------
 
+    /**
+     * Builds the navigation header containing a month/year label flanked by
+     * previous and next month arrow buttons.
+     *
+     * @return the assembled header {@link JPanel}
+     */
     private JPanel buildHeader() {
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
@@ -104,6 +154,14 @@ public class CalendarPanel extends JPanel {
         return header;
     }
 
+    /**
+     * Builds an arrow navigation button that draws a filled triangle pointing
+     * left or right.
+     *
+     * @param left {@code true} for a left-pointing (previous month) arrow,
+     *             {@code false} for a right-pointing (next month) arrow
+     * @return the configured {@link RippleButton}
+     */
     private RippleButton buildArrowButton(boolean left) {
         RippleButton btn = new RippleButton("") {
             @Override
@@ -124,7 +182,6 @@ public class CalendarPanel extends JPanel {
                 g2.setColor(getModel().isRollover() ? BUTTON_HOVER : DAY_HOVER);
                 g2.fill(arrow);
             }
-            // Arrow sits on the light-coloured calendar header — use a warm ripple
             @Override protected Color rippleColor() { return LABEL_BG; }
             @Override protected int   rippleArc()   { return 36; }
         };
@@ -132,13 +189,20 @@ public class CalendarPanel extends JPanel {
         return btn;
     }
 
-    // ── Grid wrapper ──────────────────────────────────────────────────────
+    // -----------------------------------------------------------------------
+    // Grid construction
+    // -----------------------------------------------------------------------
 
+    /**
+     * Builds the outer wrapper panel containing the day-of-week header row and
+     * the initial cell grid.
+     *
+     * @return the assembled grid wrapper {@link JPanel}
+     */
     private JPanel buildGridWrapper() {
         JPanel wrapper = new JPanel(new BorderLayout(0, CELL_GAP));
         wrapper.setOpaque(false);
 
-        // Day-of-week header row (fixed 20 px height).
         JPanel headerRow = new JPanel(new GridLayout(1, COLS, CELL_GAP, 0));
         headerRow.setOpaque(false);
         for (String h : DAY_HEADERS) {
@@ -155,8 +219,12 @@ public class CalendarPanel extends JPanel {
         return wrapper;
     }
 
-    // ── Cell grid ─────────────────────────────────────────────────────────
-
+    /**
+     * Builds the 7-column cell grid for {@link #viewMonth}, prepending blank
+     * panels to align the first day with the correct weekday column.
+     *
+     * @return the assembled cell grid {@link JPanel}
+     */
     private JPanel buildCellGrid() {
         cellsByDate.clear();
 
@@ -165,8 +233,9 @@ public class CalendarPanel extends JPanel {
 
         LocalDate today  = LocalDate.now();
         LocalDate first  = viewMonth.atDay(1);
-        int       offset = first.getDayOfWeek().getValue() % 7;  // Sun=0
+        int       offset = first.getDayOfWeek().getValue() % 7;
 
+        // Blank spacers before the first day
         for (int i = 0; i < offset; i++) {
             JPanel blank = new JPanel();
             blank.setOpaque(false);
@@ -182,8 +251,18 @@ public class CalendarPanel extends JPanel {
         return grid;
     }
 
-    // ── Day cell ──────────────────────────────────────────────────────────
-
+    /**
+     * Builds a single interactive day cell for the given date.
+     *
+     * <p>The cell paints itself via {@link #paintDayContent} and reacts to
+     * hover (highlight), and click (selection) events.  The client property
+     * {@code "hovered"} is used as a lightweight way to trigger a hover repaint
+     * without a subclass.</p>
+     *
+     * @param date  the date this cell represents
+     * @param today today's date (used to highlight the current day)
+     * @return the configured day-cell {@link JPanel}
+     */
     private JPanel buildDayCell(LocalDate date, LocalDate today) {
         final boolean isToday = date.equals(today);
 
@@ -192,7 +271,6 @@ public class CalendarPanel extends JPanel {
             protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
 
-                // Read current state dynamically so we don't need a rebuild on click
                 final boolean isSelected = date.equals(CalendarPanel.this.selectedDate);
                 final boolean hovered    = Boolean.TRUE.equals(getClientProperty("hovered"));
                 final int     taskCount  = taskManager.getTaskCountForDate(date.toString());
@@ -204,7 +282,6 @@ public class CalendarPanel extends JPanel {
                         RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                 final int w = getWidth(), h = getHeight();
 
-                // Background
                 if (isSelected) {
                     g2.setColor(DAY_SELECTED);
                     g2.fillRoundRect(0, 0, w, h, 10, 10);
@@ -213,7 +290,6 @@ public class CalendarPanel extends JPanel {
                     g2.fillRoundRect(0, 0, w, h, 10, 10);
                 }
 
-                // Today ring
                 if (isToday) {
                     g2.setColor(TODAY_RING);
                     g2.setStroke(new BasicStroke(2f));
@@ -242,7 +318,6 @@ public class CalendarPanel extends JPanel {
                 LocalDate prev = selectedDate;
                 selectedDate = date;
 
-                // Only repaint the two affected cells — no grid rebuild.
                 JPanel prevCell = cellsByDate.get(prev);
                 if (prevCell != null) prevCell.repaint();
                 cell.repaint();
@@ -254,23 +329,39 @@ public class CalendarPanel extends JPanel {
         return cell;
     }
 
+    // -----------------------------------------------------------------------
+    // Cell painting helpers
+    // -----------------------------------------------------------------------
+
     /**
-     * Paints the day number and (when there are tasks) a small pill badge,
-     * all via direct Graphics2D calls so alignment is pixel-exact.
+     * Paints the day number and (if there are tasks for this date) a small task-
+     * count badge inside the given cell graphics context.
+     *
+     * <p>The badge colour is resolved via {@link #pickBadgeColor(LocalDate)} to
+     * indicate overall urgency.  When the cell is selected the badge uses a
+     * semi-transparent white fill so it remains readable against the orange
+     * selection background.</p>
+     *
+     * @param g2         graphics context, already configured with anti-aliasing
+     * @param w          cell width in pixels
+     * @param h          cell height in pixels
+     * @param date       the date being painted
+     * @param isSelected {@code true} if this cell is currently selected
+     * @param isToday    {@code true} if this cell represents today
+     * @param taskCount  number of tasks scheduled for this date
      */
     private void paintDayContent(Graphics2D g2, int w, int h,
                                   LocalDate date, boolean isSelected,
                                   boolean isToday, int taskCount) {
         Color numColor = isSelected ? Color.WHITE
-                : isToday            ? BUTTON_HOVER
-                                     : TEXT_DARK;
+                       : isToday    ? BUTTON_HOVER
+                                    : TEXT_DARK;
         Font  numFont  = new Font("SansSerif", isToday ? Font.BOLD : Font.PLAIN, 13);
         g2.setFont(numFont);
         FontMetrics nfm    = g2.getFontMetrics();
         String      numStr = String.valueOf(date.getDayOfMonth());
         int         numW   = nfm.stringWidth(numStr);
 
-        // ── Badge (drawn first so number sits on top of it if they ever overlap) ──
         if (taskCount > 0) {
             Font        bFont  = new Font("SansSerif", Font.BOLD, 8);
             FontMetrics bfm    = g2.getFontMetrics(bFont);
@@ -280,11 +371,9 @@ public class CalendarPanel extends JPanel {
             int         bw     = Math.max(bTextW + bPadX * 2, 14);
             int         bh     = bfm.getAscent() + bfm.getDescent() + 2;
 
-            // Badge: centred horizontally, 2 px from bottom edge
             int bx = (w - bw) / 2;
             int by = h - bh - 2;
 
-            // Use slightly translucent white when selected so the orange bg shows
             g2.setColor(isSelected
                     ? new Color(255, 255, 255, 200)
                     : pickBadgeColor(date));
@@ -293,13 +382,11 @@ public class CalendarPanel extends JPanel {
             g2.setFont(bFont);
             g2.setColor(isSelected ? DAY_SELECTED : Color.WHITE);
             int btx = bx + (bw - bTextW) / 2;
-            int bty = by + bfm.getAscent() + (bh - bfm.getAscent() - bfm.getDescent()) / 2;
+            int bty = by + bfm.getAscent()
+                        + (bh - bfm.getAscent() - bfm.getDescent()) / 2;
             g2.drawString(badge, btx, bty);
         }
 
-        // ── Day number: ALWAYS vertically centred in the FULL cell ──────────
-        // This is the key fix — the position never shifts depending on whether
-        // a badge is present, which was the original cause of misalignment.
         g2.setFont(numFont);
         g2.setColor(numColor);
         int numX = (w - numW) / 2;
@@ -307,6 +394,21 @@ public class CalendarPanel extends JPanel {
         g2.drawString(numStr, numX, numY);
     }
 
+    /**
+     * Determines the urgency colour for the task-count badge on a given date by
+     * scanning all tasks scheduled for that date.
+     *
+     * <p>Resolution priority (first match wins):</p>
+     * <ol>
+     *   <li>Any non-done task is overdue → {@link ThemeColors#COUNTDOWN_OVERDUE}</li>
+     *   <li>Any non-done task is due today → {@link ThemeColors#COUNTDOWN_TODAY}</li>
+     *   <li>Any non-done task is due within 3 days → {@link ThemeColors#COUNTDOWN_SOON}</li>
+     *   <li>Default → {@link ThemeColors#COUNTDOWN_NORMAL}</li>
+     * </ol>
+     *
+     * @param date the date whose tasks should be examined
+     * @return the urgency {@link Color} for the badge
+     */
     private Color pickBadgeColor(LocalDate date) {
         for (Task t : taskManager.getTasksForDate(date.toString())) {
             if (t.isOverdue())                     return COUNTDOWN_OVERDUE;
@@ -318,9 +420,14 @@ public class CalendarPanel extends JPanel {
         return COUNTDOWN_NORMAL;
     }
 
-    // ── Refresh helpers ───────────────────────────────────────────────────
+    // -----------------------------------------------------------------------
+    // Refresh / navigation
+    // -----------------------------------------------------------------------
 
-    /** Full grid rebuild — only called on month navigation. */
+    /**
+     * Replaces the cell grid with a freshly built grid for {@link #viewMonth}
+     * and updates the month/year header label.
+     */
     private void rebuildCells() {
         monthLabel.setText(formatMonthTitle());
         gridWrapper.remove(cellGrid);
@@ -331,14 +438,20 @@ public class CalendarPanel extends JPanel {
     }
 
     /**
-     * Repaints all visible day cells to reflect updated task counts.
-     * Does <em>not</em> rebuild the grid.
+     * Requests a repaint of all currently visible day cells (e.g. after task
+     * counts have changed).  Does not rebuild the grid.
      */
     public void refresh() {
         for (JPanel c : cellsByDate.values()) c.repaint();
     }
 
-    /** Programmatically selects {@code date} and navigates to its month. */
+    /**
+     * Programmatically selects a date.  If the date falls outside the current
+     * view month the grid is rebuilt for the new month first.  The previously
+     * selected cell is repainted to remove the selection highlight.
+     *
+     * @param date the date to select (must not be {@code null})
+     */
     public void selectDate(LocalDate date) {
         if (!YearMonth.from(date).equals(viewMonth)) {
             selectedDate = date;
@@ -354,41 +467,84 @@ public class CalendarPanel extends JPanel {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Accessors
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns the currently selected date.
+     *
+     * @return the selected {@link LocalDate} (never {@code null}; defaults to
+     *         today when the panel is first constructed)
+     */
     public LocalDate getSelectedDate() { return selectedDate; }
 
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns a formatted month/year title string for the current view month
+     * (e.g. {@code "December  2025"}).
+     *
+     * @return formatted title string
+     */
     private String formatMonthTitle() {
         return viewMonth.getMonth().getDisplayName(TextStyle.FULL, Locale.ENGLISH)
                 + "  " + viewMonth.getYear();
     }
 
+    /**
+     * Returns a fixed preferred size so the calendar maintains a consistent
+     * appearance regardless of parent layout constraints.
+     *
+     * @return preferred size of 320 × 340 pixels
+     */
     @Override
     public Dimension getPreferredSize() {
         return new Dimension(320, 340);
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  SquareCellLayout
-    // ══════════════════════════════════════════════════════════════════════
+    // -----------------------------------------------------------------------
+    // Inner layout manager
+    // -----------------------------------------------------------------------
 
     /**
-     * Layout manager that places components in {@code cols} columns where
-     * every cell is a <em>perfect square</em>.
+     * A custom {@link LayoutManager} that arranges a fixed number of columns of
+     * equal-size square cells, computing the cell side length from the available
+     * container width.
      *
-     * <p>Cell side length = {@code (availableWidth - (cols-1)*gap) / cols}.
-     * The same value is used for height, so cells are always square regardless
-     * of the container's actual height or the window's current size.</p>
+     * <p>This ensures that calendar cells are always square and fill the full
+     * width of the panel regardless of the window size.</p>
      */
     static final class SquareCellLayout implements LayoutManager {
 
+        /** Number of columns (always 7 for a calendar). */
         private final int cols;
+
+        /** Pixel gap between adjacent cells (horizontal and vertical). */
         private final int gap;
 
+        /**
+         * Constructs a {@code SquareCellLayout} for the given column count and gap.
+         *
+         * @param cols number of columns
+         * @param gap  gap between cells in pixels
+         */
         SquareCellLayout(int cols, int gap) {
             this.cols = cols;
             this.gap  = gap;
         }
 
-        /** Derives cell side from the container's current (or ancestor's) width. */
+        /**
+         * Computes the square cell side length from the container's current width.
+         * If the container has no width yet, the method walks ancestor containers;
+         * if no ancestor width is available either, a fallback of
+         * {@code cols * DEFAULT_CELL + (cols-1) * gap} is used.
+         *
+         * @param p the container to measure
+         * @return cell side length in pixels (at least {@link CalendarPanel#DEFAULT_CELL})
+         */
         private int cellSize(Container p) {
             Insets ins    = p.getInsets();
             int    availW = p.getWidth() - ins.left - ins.right;
@@ -404,6 +560,11 @@ public class CalendarPanel extends JPanel {
             return Math.max(DEFAULT_CELL, (availW - (cols - 1) * gap) / cols);
         }
 
+        /**
+         * Positions each component in a row-major grid of square cells.
+         *
+         * @param p the container to lay out
+         */
         @Override
         public void layoutContainer(Container p) {
             Insets ins = p.getInsets();
@@ -412,7 +573,7 @@ public class CalendarPanel extends JPanel {
             int    y   = ins.top;
             int    col = 0;
             for (Component c : p.getComponents()) {
-                c.setBounds(x, y, cs, cs);   // width == height → perfect square
+                c.setBounds(x, y, cs, cs);
                 x += cs + gap;
                 if (++col == cols) {
                     col = 0;
@@ -422,9 +583,18 @@ public class CalendarPanel extends JPanel {
             }
         }
 
+        /** {@inheritDoc} */
         @Override public Dimension preferredLayoutSize(Container p) { return computeSize(p); }
+
+        /** {@inheritDoc} */
         @Override public Dimension minimumLayoutSize(Container p)   { return computeSize(p); }
 
+        /**
+         * Computes the total size required to display all components in the grid.
+         *
+         * @param p the container to measure
+         * @return the required {@link Dimension}
+         */
         private Dimension computeSize(Container p) {
             Insets ins  = p.getInsets();
             int    cs   = cellSize(p);
@@ -435,7 +605,10 @@ public class CalendarPanel extends JPanel {
             return new Dimension(tw, th);
         }
 
+        /** {@inheritDoc} */
         @Override public void addLayoutComponent(String name, Component c) {}
+
+        /** {@inheritDoc} */
         @Override public void removeLayoutComponent(Component c) {}
     }
 }

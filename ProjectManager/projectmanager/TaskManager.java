@@ -1,450 +1,340 @@
 package projectmanager;
 
-import java.util.*;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.*;
 
 /**
- * Manages a collection of tasks organized by date with file persistence.
- * <p>
- * This class provides functionality to add, view, and persist tasks to a file.
- * Tasks are organized in a map structure where the key is a date string and
- * the value is a list of tasks for that date. Data is automatically loaded
- * from file upon instantiation and can be saved at any time.
- * </p>
- * 
- * <p><b>File Format:</b> Tasks are stored in a pipe-delimited text file format:
- * <pre>date|description|tag1,tag2,tag3</pre>
- * Example: <code>2024-12-25|Buy Christmas gifts|shopping,personal</code>
- * </p>
- * 
- * <p><b>Usage Example:</b></p>
- * <pre>
- * TaskManager manager = new TaskManager();
- * manager.addTask("2024-12-31", "Submit final report", Arrays.asList("work", "urgent"));
- * manager.viewTasks("2024-12-31");
- * manager.saveToFile();
- * </pre>
- * 
- * @author Team Orange
- * @version 1.0
- * @see Task
+ * Central data-access layer for the project manager.
+ *
+ * <p>{@code TaskManager} owns the in-memory store of all {@link Task} objects,
+ * organized as a {@code Map} from ISO-8601 date strings to lists of tasks for
+ * that date.  It also handles persistence:</p>
+ * <ul>
+ *   <li><strong>Primary format:</strong> {@code tasks.json} written by
+ *       {@link JsonUtil}.</li>
+ *   <li><strong>Legacy migration:</strong> if {@code tasks.json} is absent but
+ *       the old {@code tasks.txt} pipe-delimited file exists, it is automatically
+ *       migrated and saved as JSON on first run.</li>
+ * </ul>
+ *
+ * <p>All mutating methods ({@code addTask}, {@code updateTask},
+ * {@code removeTask*}) operate only on the in-memory map.  Call
+ * {@link #saveToFile()} explicitly after any mutation to persist changes.</p>
  */
 public class TaskManager {
-    
+
+    /** Name of the JSON file used to persist tasks. */
+    private static final String FILENAME = "tasks.json";
+
     /**
-     * Map storing tasks organized by date. 
-     * Key: date string in YYYY-MM-DD format
-     * Value: list of tasks for that date
+     * Internal store: maps ISO-8601 date strings (e.g. {@code "2025-12-31"})
+     * to the ordered list of tasks scheduled for that date.
      */
-    private Map<String, List<Task>> tasks;
-    
+    private final Map<String, List<Task>> tasks = new HashMap<>();
+
     /**
-     * The filename used for loading and saving task data.
-     * Default value is "tasks.txt".
-     */
-    private String filename = "tasks.txt";
-    
-    /**
-     * Constructs a new TaskManager and loads existing tasks from file.
-     * <p>
-     * Upon instantiation, this constructor initializes the task map and
-     * attempts to load any previously saved tasks from the default file.
-     * If the file does not exist, an empty task manager is created.
-     * </p>
+     * Constructs a new {@code TaskManager} and immediately loads persisted tasks
+     * from disk (JSON file, or legacy text file if JSON is absent).
      */
     public TaskManager() {
-        tasks = new HashMap<>();
         loadFromFile();
     }
-    
+
+    // -----------------------------------------------------------------------
+    // Mutation
+    // -----------------------------------------------------------------------
+
     /**
-     * Adds a new task for the specified date without tags.
-     * <p>
-     * Creates a new Task object and adds it to the collection under the
-     * specified date. If this is the first task for that date, a new
-     * list is created. A confirmation message is printed to the console.
-     * </p>
-     * 
-     * @param date the date for the task in YYYY-MM-DD format (e.g., "2024-12-25")
-     * @param description the textual description of the task
-     * @see Task#Task(String, String)
+     * Creates a new task with the given date and description (no tags) and
+     * appends it to the list for that date.
+     *
+     * @param date        ISO-8601 due-date string
+     * @param description short task title
      */
     public void addTask(String date, String description) {
-        Task task = new Task(description, date);
-        tasks.computeIfAbsent(date, k -> new ArrayList<>()).add(task);
-        System.out.println("Added: " + task);
+        tasks.computeIfAbsent(date, k -> new ArrayList<>())
+             .add(new Task(description, date));
     }
 
     /**
-     * Adds a new task for the specified date with tags.
-     * <p>
-     * Creates a new Task object with tags and adds it to the collection under the
-     * specified date. If this is the first task for that date, a new
-     * list is created. A confirmation message is printed to the console.
-     * </p>
-     * 
-     * @param date the date for the task in YYYY-MM-DD format (e.g., "2024-12-25")
-     * @param description the textual description of the task
-     * @param tags list of tags to categorize the task
-     * @see Task#Task(String, String, List)
+     * Creates a new task with the given date, description, and initial tags, then
+     * appends it to the list for that date.
+     *
+     * @param date        ISO-8601 due-date string
+     * @param description short task title
+     * @param tags        initial user-defined tags to attach to the task
      */
     public void addTask(String date, String description, List<String> tags) {
-        Task task = new Task(description, date, tags);
-        tasks.computeIfAbsent(date, k -> new ArrayList<>()).add(task);
-        System.out.println("Added: " + task);
+        Task t = new Task(description, date);
+        for (String tag : tags) t.addTag(tag);
+        tasks.computeIfAbsent(date, k -> new ArrayList<>()).add(t);
     }
-    
-    /**
-     * Displays all tasks for a specific date to the console.
-     * <p>
-     * Retrieves and prints all tasks associated with the given date.
-     * If no tasks exist for that date, a message indicating this is displayed.
-     * </p>
-     * 
-     * @param date the date to query in YYYY-MM-DD format (e.g., "2024-12-25")
-     */
-    public void viewTasks(String date) {
-        List<Task> dayTasks = tasks.get(date);
-        if (dayTasks == null || dayTasks.isEmpty()) {
-            System.out.println("No tasks for " + date);
-        } else {
-            System.out.println("\nTasks for " + date + ":");
-            for (Task task : dayTasks) {
-                System.out.println("  - " + task.getDescription() + 
-                    (task.getTags().isEmpty() ? "" : " [" + String.join(", ", task.getTags()) + "]"));
-            }
-        }
-    }
-    
-    /**
-     * Displays all tasks in the system, organized and sorted by date.
-     * <p>
-     * Prints all tasks sorted by date in ascending order. Each date is
-     * displayed as a header with the weekday, followed by its associated tasks. 
-     * If no tasks exist in the system, a message indicating this is displayed.
-     * </p>
-     */
-    public void viewAllTasksSorted() {
-        if (tasks.isEmpty()) {
-            System.out.println("No tasks stored.");
-            return;
-        }
-        
-        System.out.println("\n=== All Tasks (Sorted by Date) ===");
-        List<String> sortedDates = new ArrayList<>(tasks.keySet());
-        Collections.sort(sortedDates);
 
-        for (String date : sortedDates) {
-            String weekday = getWeekday(date);
-            System.out.println("\n" + date + " (" + weekday + "):");
-            for (Task task : tasks.get(date)) {
-                System.out.println("  - " + task.getDescription() + 
-                    (task.getTags().isEmpty() ? "" : " [" + String.join(", ", task.getTags()) + "]"));
+    /**
+     * Appends a fully-constructed {@link Task} to the list for its due date.
+     *
+     * @param task the task to add (must have a valid date)
+     */
+    public void addTask(Task task) {
+        tasks.computeIfAbsent(task.getDate(), k -> new ArrayList<>()).add(task);
+    }
+
+    /**
+     * Replaces an existing task (matched by {@link Task#getId()}) with the
+     * supplied updated version.
+     *
+     * <p>Because the date may have changed, the old entry is removed from its
+     * original date bucket and the updated task is inserted into the bucket
+     * matching its new date.</p>
+     *
+     * @param updated task carrying the new field values; its {@code id} must
+     *                match an existing task
+     * @return {@code true} if a matching task was found and replaced;
+     *         {@code false} if no task with that ID exists
+     */
+    public boolean updateTask(Task updated) {
+        for (Map.Entry<String, List<Task>> entry : tasks.entrySet()) {
+            List<Task> list = entry.getValue();
+            for (int i = 0; i < list.size(); i++) {
+                if (list.get(i).getId().equals(updated.getId())) {
+                    list.remove(i);
+                    if (list.isEmpty()) tasks.remove(entry.getKey());
+                    tasks.computeIfAbsent(updated.getDate(), k -> new ArrayList<>())
+                         .add(updated);
+                    return true;
+                }
             }
         }
+        return false;
     }
-    
- // Return all tasks as a flat list
+
+    /**
+     * Removes the task with the given UUID from the store.
+     *
+     * @param id UUID of the task to remove
+     * @return {@code true} if the task was found and removed; {@code false} otherwise
+     */
+    public boolean removeTaskById(String id) {
+        for (Map.Entry<String, List<Task>> entry : tasks.entrySet()) {
+            Iterator<Task> it = entry.getValue().iterator();
+            while (it.hasNext()) {
+                if (it.next().getId().equals(id)) {
+                    it.remove();
+                    if (entry.getValue().isEmpty()) tasks.remove(entry.getKey());
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Removes a task by its 1-based position within the list for a specific date.
+     *
+     * @param date       ISO-8601 date string identifying the task list
+     * @param taskNumber 1-based index of the task within that date's list
+     * @return {@code true} if the task was removed; {@code false} if the date
+     *         has no tasks or the index is out of range
+     */
+    public boolean removeTask(String date, int taskNumber) {
+        List<Task> list = tasks.get(date);
+        if (list == null || taskNumber < 1 || taskNumber > list.size()) return false;
+        list.remove(taskNumber - 1);
+        if (list.isEmpty()) tasks.remove(date);
+        return true;
+    }
+
+    // -----------------------------------------------------------------------
+    // Queries
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns the (possibly empty) list of tasks for a specific date.  The
+     * returned list is the live backing list – do not modify it directly.
+     *
+     * @param date ISO-8601 date string
+     * @return unmodifiable-safe list of tasks for that date (never {@code null})
+     */
+    public List<Task> getTasksForDate(String date) {
+        return tasks.getOrDefault(date, Collections.emptyList());
+    }
+
+    /**
+     * Returns an unmodifiable view of all dates that have at least one task.
+     *
+     * @return set of ISO-8601 date strings
+     */
+    public Set<String> getAllDatesWithTasks() {
+        return Collections.unmodifiableSet(tasks.keySet());
+    }
+
+    /**
+     * Returns a flat list of all tasks across all dates in no guaranteed order.
+     *
+     * @return mutable list containing every task
+     */
     public List<Task> getAllTasksFlat() {
         List<Task> all = new ArrayList<>();
-        for (List<Task> list : tasks.values()) {
-            all.addAll(list);
-        }
+        for (List<Task> list : tasks.values()) all.addAll(list);
         return all;
     }
 
-    // Return all tasks sorted by date
+    /**
+     * Returns a flat list of all tasks sorted chronologically by due date
+     * (earliest first), then by insertion order within each date.
+     *
+     * @return chronologically ordered list of every task
+     */
     public List<Task> getAllTasksSortedFlat() {
         List<String> sortedDates = new ArrayList<>(tasks.keySet());
         Collections.sort(sortedDates);
-
         List<Task> result = new ArrayList<>();
-        for (String date : sortedDates) {
-            result.addAll(tasks.get(date));
-        }
+        for (String date : sortedDates) result.addAll(tasks.get(date));
         return result;
     }
 
-    // Return tasks by tag
+    /**
+     * Returns all tasks that carry the given tag.
+     *
+     * @param tag the tag to search for (exact match)
+     * @return list of matching tasks (may be empty; never {@code null})
+     */
     public List<Task> getTasksByTag(String tag) {
         List<Task> result = new ArrayList<>();
-        for (List<Task> list : tasks.values()) {
-            for (Task t : list) {
-                if (t.hasTag(tag)) {
-                    result.add(t);
-                }
-            }
-        }
+        for (List<Task> list : tasks.values())
+            for (Task t : list)
+                if (t.hasTag(tag)) result.add(t);
         return result;
     }
 
-    // Return all tags with counts
+    /**
+     * Returns a sorted list of strings in the format {@code "tagName (N)"} where
+     * {@code N} is the number of tasks bearing that tag.  Includes status tags.
+     *
+     * @return alphabetically sorted tag-with-count strings
+     */
     public List<String> getAllTagsWithCount() {
-        Map<String, Integer> tagCount = new TreeMap<>();
-
-        for (List<Task> list : tasks.values()) {
-            for (Task t : list) {
-                for (String tag : t.getTags()) {
-                    tagCount.put(tag, tagCount.getOrDefault(tag, 0) + 1);
-                }
-            }
-        }
+        Map<String, Integer> counts = new TreeMap<>();
+        for (List<Task> list : tasks.values())
+            for (Task t : list)
+                for (String tag : t.getTags())
+                    counts.merge(tag, 1, Integer::sum);
 
         List<String> result = new ArrayList<>();
-        for (String tag : tagCount.keySet()) {
-            int count = tagCount.get(tag);
-            result.add(tag + " (" + count + ")");
-        }
+        counts.forEach((tag, count) -> result.add(tag + " (" + count + ")"));
         return result;
     }
 
     /**
-     * Displays all tasks that have a specific tag.
-     * <p>
-     * Searches through all tasks and displays those that contain the specified tag.
-     * Tasks are grouped by date and sorted chronologically.
-     * </p>
-     * 
-     * @param tag the tag to search for
+     * Returns the number of tasks scheduled for the given date.
+     *
+     * @param date ISO-8601 date string
+     * @return task count for that date (0 if none)
      */
-    public void viewTasksByTag(String tag) {
-        boolean found = false;
-        System.out.println("\n=== Tasks with tag: " + tag + " ===");
-        
-        List<String> sortedDates = new ArrayList<>(tasks.keySet());
-        Collections.sort(sortedDates);
-
-        for (String date : sortedDates) {
-            List<Task> taggedTasks = new ArrayList<>();
-            for (Task task : tasks.get(date)) {
-                if (task.hasTag(tag)) {
-                    taggedTasks.add(task);
-                }
-            }
-            
-            if (!taggedTasks.isEmpty()) {
-                found = true;
-                String weekday = getWeekday(date);
-                System.out.println("\n" + date + " (" + weekday + "):");
-                for (Task task : taggedTasks) {
-                    System.out.println("  - " + task.getDescription() + 
-                        " [" + String.join(", ", task.getTags()) + "]");
-                }
-            }
-        }
-        
-        if (!found) {
-            System.out.println("No tasks found with tag: " + tag);
-        }
+    public int getTaskCountForDate(String date) {
+        List<Task> list = tasks.get(date);
+        return list == null ? 0 : list.size();
     }
 
-    /**
-     * Displays all unique tags used across all tasks.
-     */
-    public void viewAllTags() {
-        Set<String> allTags = new TreeSet<>();
-        
-        for (List<Task> taskList : tasks.values()) {
-            for (Task task : taskList) {
-                allTags.addAll(task.getTags());
-            }
-        }
-        
-        if (allTags.isEmpty()) {
-            System.out.println("\nNo tags in use.");
-        } else {
-            System.out.println("\n=== All Tags ===");
-            for (String tag : allTags) {
-                int count = countTasksWithTag(tag);
-                System.out.println("  - " + tag + " (" + count + " task" + (count != 1 ? "s" : "") + ")");
-            }
-        }
-    }
+    // -----------------------------------------------------------------------
+    // Persistence
+    // -----------------------------------------------------------------------
 
     /**
-     * Counts the number of tasks that have a specific tag.
-     * 
-     * @param tag the tag to count
-     * @return the number of tasks with this tag
-     */
-    private int countTasksWithTag(String tag) {
-        int count = 0;
-        for (List<Task> taskList : tasks.values()) {
-            for (Task task : taskList) {
-                if (task.hasTag(tag)) {
-                    count++;
-                }
-            }
-        }
-        return count;
-    }
-    
-    /**
-     * Displays all tasks in the system, organized by date.
-     * <p>
-     * Prints all tasks sorted by date in ascending order. Each date is
-     * displayed as a header followed by its associated tasks. If no tasks
-     * exist in the system, a message indicating this is displayed.
-     * </p>
-     */
-    public void viewAllTasks() {
-        if (tasks.isEmpty()) {
-            System.out.println("No tasks stored.");
-            return;
-        }
-        
-        System.out.println("\nAll Tasks:");
-        List<String> sortedDates = new ArrayList<>(tasks.keySet());
-        Collections.sort(sortedDates);
-
-        for (String date : sortedDates) {
-            System.out.println("\n" + date + ":");
-            for (Task task : tasks.get(date)) {
-                System.out.println("  - " + task.getDescription());
-            }
-        }
-    }
-    
-    /**
-     * Converts a date string to its corresponding weekday name.
-     * <p>
-     * Takes a date in YYYY-MM-DD format and returns the day of the week
-     * (e.g., "Monday", "Tuesday"). If the date format is invalid, returns
-     * "Invalid Date".
-     * </p>
-     * 
-     * @param dateStr the date string in YYYY-MM-DD format (e.g., "2024-12-25")
-     * @return the weekday name (e.g., "Wednesday") or "Invalid Date" if parsing fails
-     */
-    private String getWeekday(String dateStr) {
-        try {
-            LocalDate date = LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE);
-            return date.getDayOfWeek().toString().charAt(0) + 
-                   date.getDayOfWeek().toString().substring(1).toLowerCase();
-        } catch (DateTimeParseException e) {
-            return "Invalid Date";
-        }
-    }
-    
-    /**
-     * Saves all tasks to the file specified by {@link #filename}.
-     * <p>
-     * Writes all tasks to a text file in pipe-delimited format (date|description|tags).
-     * Each task is written on a separate line. If an error occurs during saving,
-     * an error message is printed to the console.
-     * </p>
-     * 
-     * <p><b>File Format:</b></p>
-     * <pre>
-     * 2024-12-25|Buy Christmas gifts|shopping,personal
-     * 2024-12-31|Submit final report|work,urgent
-     * </pre>
-     * 
-     * @see #loadFromFile()
+     * Serializes all tasks to {@value #FILENAME} in the working directory using
+     * the custom JSON format produced by {@link JsonUtil#tasksToJson}.  Logs the
+     * result (or any {@link IOException}) to {@code System.out} / {@code System.err}.
      */
     public void saveToFile() {
-        try (PrintWriter writer = new PrintWriter(new FileWriter(filename))) {
-            for (String date : tasks.keySet()) {
-                for (Task task : tasks.get(date)) {
-                    writer.println(date + "|" + task.getDescription() + "|" + task.getTagsAsString());
-                }
-            }
-            System.out.println("Saved to " + filename);
+        try {
+            String json = JsonUtil.tasksToJson(getAllTasksFlat());
+            Files.write(Paths.get(FILENAME), json.getBytes(StandardCharsets.UTF_8));
+            System.out.println("[TaskManager] Saved " + getAllTasksFlat().size() + " task(s) to " + FILENAME);
         } catch (IOException e) {
-            System.out.println("Error saving: " + e.getMessage());
+            System.err.println("[TaskManager] Error saving: " + e.getMessage());
         }
     }
-    
+
     /**
-     * Removes a task for a given date by its index (1-based).
-     *
-     * @param date the date of the task (YYYY-MM-DD)
-     * @param taskNumber the task number shown to the user (1-based index)
-     * @return true if removed successfully, false otherwise
-     */
-    public boolean removeTask(String date, int taskNumber) {
-        List<Task> dayTasks = tasks.get(date);
-
-        if (dayTasks == null || dayTasks.isEmpty()) {
-            return false;
-        }
-
-        if (taskNumber < 1 || taskNumber > dayTasks.size()) {
-            return false;
-        }
-
-        Task removed = dayTasks.remove(taskNumber - 1);
-        System.out.println("Removed: " + removed);
-
-        // If no tasks remain for that date, remove the date entry
-        if (dayTasks.isEmpty()) {
-            tasks.remove(date);
-        }
-
-        return true;
-    }
-    
-    /**
-     * Returns tasks for a specific date.
-     *
-     * @param date the date in YYYY-MM-DD format
-     * @return list of tasks or null if none exist
-     */
-    public List<Task> getTasksForDate(String date) {
-        return tasks.get(date);
-    }
-    
-    /**
-     * Loads tasks from the file specified by {@link #filename}.
-     * <p>
-     * Reads tasks from the text file and populates the task map. The file is
-     * expected to be in pipe-delimited format (date|description|tags). If the file
-     * does not exist, the method returns silently without error. If an error
-     * occurs during loading, an error message is printed to the console.
-     * </p>
-     * 
-     * <p>
-     * This method is automatically called by the constructor to restore
-     * previously saved tasks.
-     * </p>
-     * 
-     * @see #saveToFile()
+     * Clears the in-memory store and reloads tasks from {@value #FILENAME}.
+     * If the JSON file does not exist, falls back to {@link #migrateLegacyTxt()}.
+     * Any {@link IOException} is logged to {@code System.err} without re-throwing.
      */
     public void loadFromFile() {
-        File file = new File(filename);
+        tasks.clear();
+        File file = new File(FILENAME);
         if (!file.exists()) {
+            migrateLegacyTxt();
             return;
         }
-        
-        try (BufferedReader reader = new BufferedReader(new FileReader(filename))) {
+        try {
+            byte[] bytes = Files.readAllBytes(file.toPath());
+            String json  = new String(bytes, StandardCharsets.UTF_8);
+            List<Task> loaded = JsonUtil.tasksFromJson(json);
+            for (Task t : loaded)
+                tasks.computeIfAbsent(t.getDate(), k -> new ArrayList<>()).add(t);
+            System.out.println("[TaskManager] Loaded " + loaded.size() + " task(s) from " + FILENAME);
+        } catch (IOException e) {
+            System.err.println("[TaskManager] Error loading: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Reads the legacy pipe-delimited {@code tasks.txt} file (format:
+     * {@code date|description[|tag1,tag2,…]}) and populates the in-memory store,
+     * then immediately calls {@link #saveToFile()} to write the converted data as
+     * JSON.  Called automatically by {@link #loadFromFile()} when
+     * {@value #FILENAME} does not yet exist.
+     */
+    private void migrateLegacyTxt() {
+        File legacy = new File("tasks.txt");
+        if (!legacy.exists()) return;
+        System.out.println("[TaskManager] Migrating tasks.txt → tasks.json …");
+        try (BufferedReader reader = new BufferedReader(new FileReader(legacy))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] parts = line.split("\\|", 3);
-                if (parts.length >= 2) {
-                    String date = parts[0];
-                    String description = parts[1];
-                    List<String> tags = new ArrayList<>();
-                    
-                    if (parts.length == 3 && !parts[2].trim().isEmpty()) {
-                        String[] tagArray = parts[2].split(",");
-                        for (String tag : tagArray) {
-                            String trimmedTag = tag.trim();
-                            if (!trimmedTag.isEmpty()) {
-                                tags.add(trimmedTag);
-                            }
-                        }
-                    }
-                    
-                    Task task = new Task(description, date, tags);
-                    tasks.computeIfAbsent(date, k -> new ArrayList<>()).add(task);
+                if (parts.length < 2) continue;
+                String date        = parts[0].trim();
+                String description = parts[1].trim();
+                List<String> tags  = new ArrayList<>();
+                if (parts.length == 3 && !parts[2].trim().isEmpty()) {
+                    for (String tag : parts[2].split(","))
+                        if (!tag.trim().isEmpty()) tags.add(tag.trim());
                 }
+                Task t = new Task(description, date, tags);
+                tasks.computeIfAbsent(date, k -> new ArrayList<>()).add(t);
             }
-            System.out.println("Loaded tasks from " + filename);
+            saveToFile();
         } catch (IOException e) {
-            System.out.println("Error loading: " + e.getMessage());
+            System.err.println("[TaskManager] Migration error: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Internal helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns the full English weekday name for a date string (e.g.
+     * {@code "Monday"}).  Returns {@code "Unknown"} if the string cannot be
+     * parsed.
+     *
+     * @param dateStr ISO-8601 date string
+     * @return capitalized weekday name, or {@code "Unknown"}
+     */
+    private String getWeekday(String dateStr) {
+        try {
+            LocalDate d = LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE);
+            String name = d.getDayOfWeek().toString();
+            return name.charAt(0) + name.substring(1).toLowerCase();
+        } catch (DateTimeParseException e) {
+            return "Unknown";
         }
     }
 }
